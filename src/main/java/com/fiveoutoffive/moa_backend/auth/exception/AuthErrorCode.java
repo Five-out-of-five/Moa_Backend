@@ -10,8 +10,6 @@ import org.springframework.http.HttpStatus;
 @RequiredArgsConstructor
 public enum AuthErrorCode implements BaseErrorCode {
 
-    // 재발급 후 재시도
-    AUTH_ACCESS_TOKEN_EXPIRED(HttpStatus.UNAUTHORIZED, "AUTH_ACCESS_TOKEN_EXPIRED", "액세스 토큰이 만료되었습니다."),
     // 재로그인
     AUTH_REFRESH_TOKEN_INVALID(HttpStatus.UNAUTHORIZED, "AUTH_REFRESH_TOKEN_INVALID", "리프레시 토큰이 만료되었거나 일치하지 않습니다."),
     AUTH_SIGNUP_TICKET_INVALID(HttpStatus.BAD_REQUEST, "AUTH_SIGNUP_TICKET_INVALID", "가입 티켓이 없거나 만료되었습니다."),
