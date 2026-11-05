@@ -1,0 +1,32 @@
+package com.fiveoutoffive.moa_backend.notification.domain.model;
+
+/** 알림 유형 (27종) (notification.notification_type) */
+public enum NotificationType {
+    CARD_COMMENTED,
+    CARD_REACTED,
+    CARD_CONVERTED,
+    TASK_ASSIGNED,
+    TASK_DUE_SOON,
+    TASK_STATUS_CHANGED,
+    TASK_DELETED,
+    TASK_REJECTED,
+    TASK_UNASSIGNED,
+    VOTE_CREATED,
+    VOTE_CLOSED,
+    VOTE_DELETED,
+    VOTE_REMINDER,
+    VOTE_DEADLINE_CHANGED,
+    SESSION_STARTED,
+    SESSION_CLOSED,
+    JOIN_REQUESTED,
+    JOIN_PROCESSED,
+    CHANNEL_INVITED,
+    MEMBER_JOINED,
+    ROLE_CHANGED,
+    MEMBER_KICKED,
+    ACCOUNT_SUSPENDED,
+    ROOM_INACTIVATED,
+    REPORT_RECEIVED,
+    REPORT_PROCESSED,
+    NOTICE
+}
