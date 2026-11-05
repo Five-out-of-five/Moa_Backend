@@ -16,6 +16,7 @@ import org.springframework.web.servlet.NoHandlerFoundException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.stream.Collectors;
 
 /**
@@ -62,7 +63,7 @@ public interface CommonExceptionAdvice {
                 traceId, errorCode.getCode(), errorCode.getMessage());
         recordApiError("business");
 
-        return toResponse(errorCode, errorCode.getMessage(), traceId);
+        return toResponse(errorCode, errorCode.getMessage(), traceId, null, e.getData());
     }
 
     // 2. @Valid 어노테이션 유효성 검사 실패
@@ -75,10 +76,15 @@ public interface CommonExceptionAdvice {
                 .map(error -> error.getField() + ": " + error.getDefaultMessage())
                 .collect(Collectors.joining(", "));
 
+        List<ErrorResponse.FieldErrorDetail> errors = e.getBindingResult().getFieldErrors().stream()
+                .map(error -> new ErrorResponse.FieldErrorDetail(error.getField(), error.getDefaultMessage()))
+                .toList();
+
         getLogger().warn("[ValidationException] traceId: {}, message: {}", traceId, errorMessage);
         recordApiError("validation");
 
-        return toResponse(errorCode, errorMessage.isEmpty() ? errorCode.getMessage() : errorMessage, traceId);
+        return toResponse(errorCode, errorMessage.isEmpty() ? errorCode.getMessage() : errorMessage, traceId,
+                errors.isEmpty() ? null : errors, null);
     }
 
     // 3. API는 존재하지만 파라미터 타입이 안 맞거나, 값이 누락되거나, JSON 구조가 잘못된 경우
@@ -144,12 +150,19 @@ public interface CommonExceptionAdvice {
     }
 
     private ResponseEntity<ErrorResponse> toResponse(BaseErrorCode errorCode, String message, String traceId) {
+        return toResponse(errorCode, message, traceId, null, null);
+    }
+
+    private ResponseEntity<ErrorResponse> toResponse(BaseErrorCode errorCode, String message, String traceId,
+                                                     List<ErrorResponse.FieldErrorDetail> errors, Object data) {
         ErrorResponse response = new ErrorResponse(
                 Instant.now(),
                 errorCode.getStatus().value(),
                 errorCode.getCode(),
                 message,
-                traceId
+                traceId,
+                errors,
+                data
         );
         return ResponseEntity.status(errorCode.getStatus()).body(response);
     }

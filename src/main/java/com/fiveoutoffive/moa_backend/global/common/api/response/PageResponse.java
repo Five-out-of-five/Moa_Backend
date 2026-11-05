@@ -27,7 +27,10 @@ public record PageResponse<T>(
         boolean first,
 
         @Schema(description = "마지막 페이지 여부", example = "false")
-        boolean last
+        boolean last,
+
+        @Schema(description = "다음 페이지가 있는지", example = "true")
+        boolean hasNext
 ) {
 
     public static <T> PageResponse<T> from(Page<T> page) {
@@ -38,7 +41,8 @@ public record PageResponse<T>(
                 page.getTotalElements(),
                 page.getTotalPages(),
                 page.isFirst(),
-                page.isLast()
+                page.isLast(),
+                page.hasNext()
         );
     }
 }

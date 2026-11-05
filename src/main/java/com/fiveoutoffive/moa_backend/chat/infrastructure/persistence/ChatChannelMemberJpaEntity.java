@@ -1,0 +1,101 @@
+package com.fiveoutoffive.moa_backend.chat.infrastructure.persistence;
+
+import com.fiveoutoffive.moa_backend.chat.domain.model.ChannelMemberStatus;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.PrePersist;
+import jakarta.persistence.PreUpdate;
+import jakarta.persistence.Table;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
+import lombok.AccessLevel;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+
+/** 채널 참여자 + 읽음 위치 (chat_channel_member). 컬럼 정의는 moa_schema.sql 과 같아야 한다(ddl-auto: validate). */
+@Entity
+@Table(name = "chat_channel_member")
+@Getter
+@NoArgsConstructor(access = AccessLevel.PROTECTED)
+public class ChatChannelMemberJpaEntity {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(name = "id", nullable = false)
+    private Long id;
+
+    @Column(name = "channel_id", nullable = false)
+    private Long channelId;
+
+    @Column(name = "account_id", nullable = false)
+    private Long accountId;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "status", nullable = false, length = 20)
+    private ChannelMemberStatus status;
+
+    @Column(name = "last_read_message_id")
+    private Long lastReadMessageId;
+
+    @Column(name = "hidden_at")
+    private LocalDateTime hiddenAt;
+
+    @Column(name = "joined_at")
+    private LocalDateTime joinedAt;
+
+    @Column(name = "left_at")
+    private LocalDateTime leftAt;
+
+    @Column(name = "created_at", nullable = false)
+    private LocalDateTime createdAt;
+
+    @Column(name = "updated_at")
+    private LocalDateTime updatedAt;
+
+    // 도메인 모델의 값을 받아 JPA 엔티티를 만든다 (MapStruct 가 사용)
+    public ChatChannelMemberJpaEntity(
+            Long id,
+            Long channelId,
+            Long accountId,
+            ChannelMemberStatus status,
+            Long lastReadMessageId,
+            LocalDateTime hiddenAt,
+            LocalDateTime joinedAt,
+            LocalDateTime leftAt,
+            LocalDateTime createdAt,
+            LocalDateTime updatedAt
+    ) {
+        this.id = id;
+        this.channelId = channelId;
+        this.accountId = accountId;
+        this.status = status;
+        this.lastReadMessageId = lastReadMessageId;
+        this.hiddenAt = hiddenAt;
+        this.joinedAt = joinedAt;
+        this.leftAt = leftAt;
+        this.createdAt = createdAt;
+        this.updatedAt = updatedAt;
+    }
+
+    // DB 기본값과 같은 값을 채운다. JPA 는 null 을 그대로 INSERT 해서 DB 기본값이 쓰이지 않기 때문이다.
+    @PrePersist
+    void prePersist() {
+        LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+        if (this.status == null) {
+            this.status = ChannelMemberStatus.JOINED;
+        }
+        if (this.createdAt == null) {
+            this.createdAt = now;
+        }
+    }
+
+    @PreUpdate
+    void preUpdate() {
+        this.updatedAt = LocalDateTime.now(ZoneOffset.UTC);
+    }
+}
