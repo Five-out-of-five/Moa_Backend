@@ -58,14 +58,14 @@
 
 - `global/**`, `application*.yaml`, `build.gradle`, `docker-compose.yml`
 - `global/websocket/**` 은 담당인 BE-3 에게 먼저 알린다.
-- `src/main/resources/db/migration` — 버전 번호가 겹치지 않게 PR 생성 순서대로 번호를 잡고, 머지 전에 최신 main 으로 다시 확인한다.
+- `src/main/resources/db/migration` — 버전 번호가 겹치지 않게 PR 생성 순서대로 번호를 잡고, 머지 전에 최신 develop 으로 다시 확인한다.
 - API 계약(경로·필드·에러 코드)을 바꾸면 명세 문서를 먼저 고치고 프론트에 공유한다.
 
 ## 브랜치와 PR
 
-- `main` 에 직접 커밋하지 않는다. 브랜치는 `feature/{작업명}`, `fix/{작업명}`.
+- `main`, `develop` 에 직접 커밋하지 않는다. `develop` 에서 `feature/{작업명}`, `fix/{작업명}` 브랜치를 만든다.
 - 커밋 메시지는 `[Feature] 내용`, `[Fix] 내용`, `[Refactor] 내용`, `[Docs] 내용`.
-- PR 은 `.github/PULL_REQUEST_TEMPLATE.md` 를 채우고, 다른 도메인을 건드리면 해당 담당자를 리뷰어로 지정한다.
+- PR 은 `develop` 으로 올리고 [pull-request.md](pull-request.md) 의 양식을 따른다. 다른 도메인을 건드리면 해당 담당자를 리뷰어로 지정한다.
 - 머지 전 확인: `./gradlew test` 통과, 명세와 다른 부분은 PR 에 명시.
 
 ## AI 도구로 작업할 때
