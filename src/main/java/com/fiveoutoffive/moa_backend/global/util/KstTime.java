@@ -33,6 +33,11 @@ public final class KstTime {
         return LocalDate.now(SEOUL);
     }
 
+    /** 한국 날짜의 시작 시각(00:00 KST)을 UTC 로 바꾼다. 일자 경계 집계에 쓴다. */
+    public static LocalDateTime startOfDayUtc(LocalDate date) {
+        return date.atStartOfDay(SEOUL).withZoneSameInstant(ZoneOffset.UTC).toLocalDateTime();
+    }
+
     /** DB 에서 읽은 UTC 시각을 응답용 한국 시각(+09:00)으로 바꾼다. null 이면 null. */
     public static OffsetDateTime toKst(LocalDateTime utc) {
         if (utc == null) {

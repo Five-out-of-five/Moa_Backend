@@ -9,7 +9,6 @@ import org.springframework.stereotype.Component;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.io.IOException;
-import java.time.Instant;
 
 /**
  * 시큐리티 필터체인처럼 {@code @RestControllerAdvice}가 닿지 않는 지점에서
@@ -38,13 +37,7 @@ public class ErrorResponseWriter {
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
         response.setCharacterEncoding("UTF-8");
 
-        ErrorResponse body = new ErrorResponse(
-                Instant.now(),
-                errorCode.getStatus().value(),
-                errorCode.getCode(),
-                message,
-                TraceIdFilter.currentTraceId()
-        );
+        ErrorResponse body = ErrorResponse.of(errorCode.getCode(), message, TraceIdFilter.currentTraceId(), null, null);
 
         jsonMapper.writeValue(response.getWriter(), body);
     }

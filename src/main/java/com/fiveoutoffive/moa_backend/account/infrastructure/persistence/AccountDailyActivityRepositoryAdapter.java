@@ -3,7 +3,9 @@ package com.fiveoutoffive.moa_backend.account.infrastructure.persistence;
 import com.fiveoutoffive.moa_backend.account.domain.model.AccountDailyActivity;
 import com.fiveoutoffive.moa_backend.account.domain.repository.AccountDailyActivityRepository;
 import com.fiveoutoffive.moa_backend.account.infrastructure.mapper.AccountDailyActivityMapper;
+import java.time.LocalDate;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 @Repository
@@ -17,5 +19,10 @@ public class AccountDailyActivityRepositoryAdapter implements AccountDailyActivi
     public AccountDailyActivity save(AccountDailyActivity accountDailyActivity) {
         AccountDailyActivityJpaEntity saved = springDataRepository.save(accountDailyActivityMapper.toJpaEntity(accountDailyActivity));
         return accountDailyActivityMapper.toDomain(saved);
+    }
+
+    @Override
+    public long countBetween(@Param("from") LocalDate from, @Param("to") LocalDate to) {
+        return springDataRepository.countBetween(from, to);
     }
 }

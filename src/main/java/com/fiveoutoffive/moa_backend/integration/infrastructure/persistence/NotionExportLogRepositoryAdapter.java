@@ -5,6 +5,8 @@ import com.fiveoutoffive.moa_backend.integration.domain.repository.NotionExportL
 import com.fiveoutoffive.moa_backend.integration.infrastructure.mapper.NotionExportLogMapper;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Repository;
 
 @Repository
@@ -24,5 +26,15 @@ public class NotionExportLogRepositoryAdapter implements NotionExportLogReposito
     public Optional<NotionExportLog> findById(Long id) {
         return springDataRepository.findById(id)
                 .map(notionExportLogMapper::toDomain);
+    }
+
+    @Override
+    public Page<NotionExportLog> findByIntegrationId(Long integrationId, Pageable pageable) {
+        return springDataRepository.findByIntegrationId(integrationId, pageable).map(notionExportLogMapper::toDomain);
+    }
+
+    @Override
+    public Optional<NotionExportLog> findByIntegrationIdAndSessionId(Long integrationId, Long sessionId) {
+        return springDataRepository.findByIntegrationIdAndSessionId(integrationId, sessionId).map(notionExportLogMapper::toDomain);
     }
 }

@@ -47,7 +47,6 @@ dependencies {
     implementation 'software.amazon.awssdk:s3'
     compileOnly 'org.projectlombok:lombok'
     runtimeOnly 'org.postgresql:postgresql'
-    runtimeOnly 'com.h2database:h2' // local 프로파일(application-local.yaml)용 인메모리 DB
     annotationProcessor 'org.projectlombok:lombok'
 
     // MapStruct (도메인 ↔ JPA 엔티티 변환). Lombok과 함께 쓰므로 binding을 마지막에 둔다.
@@ -75,4 +74,6 @@ dependencyManagement {
 
 tasks.named('test') {
     useJUnitPlatform()
+    // 저장 시각은 UTC 기준이다. 테스트도 운영과 같은 JVM 시간대로 돌린다.
+    systemProperty 'user.timezone', 'UTC'
 }

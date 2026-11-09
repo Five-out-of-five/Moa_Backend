@@ -5,6 +5,8 @@ import com.fiveoutoffive.moa_backend.ai.domain.repository.AiSummaryRepository;
 import com.fiveoutoffive.moa_backend.ai.infrastructure.mapper.AiSummaryMapper;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Repository;
 
 @Repository
@@ -24,5 +26,10 @@ public class AiSummaryRepositoryAdapter implements AiSummaryRepository {
     public Optional<AiSummary> findById(Long id) {
         return springDataRepository.findById(id)
                 .map(aiSummaryMapper::toDomain);
+    }
+
+    @Override
+    public Page<AiSummary> findByRoomId(Long roomId, Pageable pageable) {
+        return springDataRepository.findByRoomId(roomId, pageable).map(aiSummaryMapper::toDomain);
     }
 }

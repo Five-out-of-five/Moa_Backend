@@ -9,4 +9,8 @@ public interface NotionIntegrationRepository {
     NotionIntegration save(NotionIntegration notionIntegration);
 
     Optional<NotionIntegration> findById(Long id);
+
+    Optional<NotionIntegration> findByRoomId(Long roomId);
+
+    void deleteById(Long id);
 }

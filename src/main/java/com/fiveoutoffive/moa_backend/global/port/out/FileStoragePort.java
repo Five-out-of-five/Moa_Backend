@@ -19,6 +19,13 @@ public interface FileStoragePort {
     /** object key(상대경로)로 파일을 삭제한다. */
     void deleteFile(String key);
 
+    /**
+     * 짧은 유효기간의 서명된 다운로드 URL 을 만든다.
+     *
+     * @param downloadName 내려받을 때의 파일명. null 이면 브라우저에서 바로 연다 (미리보기용).
+     */
+    String createDownloadUrl(String key, String downloadName, java.time.Duration ttl);
+
     /** 로컬 파일을 지정한 key로 업로드하고 그 key를 반환한다. (비동기/배치 업로드용) */
     String uploadFile(java.io.File file, String targetKey);
 }

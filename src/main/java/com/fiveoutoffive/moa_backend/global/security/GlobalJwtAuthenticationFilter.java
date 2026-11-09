@@ -40,16 +40,11 @@ public class GlobalJwtAuthenticationFilter extends OncePerRequestFilter {
 
     // 로그인/가입/토큰재발급처럼 "기존 세션 상태와 무관하게 항상 동작해야 하는" 엔드포인트.
     // 브라우저에 남아있는 낡은 토큰 쿠키 때문에 신규 로그인 시도 자체가 401로 막히는 것을 방지한다.
-    private static final Set<String> PUBLIC_AUTH_PATHS = Set.of(
-            "/api/v1/auth/login",
-            "/api/v1/auth/signup",
-            "/api/v1/auth/refresh",
-            "/api/v1/auth/logout"
-    );
+    private static final String PUBLIC_AUTH_PREFIX = "/api/v1/auth/";
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
-        return PUBLIC_AUTH_PATHS.contains(request.getRequestURI());
+        return request.getRequestURI().startsWith(PUBLIC_AUTH_PREFIX);
     }
 
     @Override

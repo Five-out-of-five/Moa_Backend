@@ -6,13 +6,13 @@ import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import jakarta.annotation.PostConstruct;
+import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.util.Date;
+import javax.crypto.SecretKey;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseCookie;
 import org.springframework.stereotype.Component;
-
-import javax.crypto.SecretKey;
-import java.nio.charset.StandardCharsets;
-import java.util.Date;
 
 /**
  * JWT 발급 / 검증 / 클레임 추출을 담당한다.
@@ -131,6 +131,35 @@ public class GlobalJwtProvider {
         }
 
         return builder.build();
+    }
+
+    /** 리프레시 토큰 쿠키. /auth/refresh·/auth/logout 의 CSRF 방어를 위해 SameSite=Strict 로 고정한다. */
+    public ResponseCookie createRefreshCookie(String token) {
+        return refreshCookieBuilder(token).maxAge(refreshTokenExpiration / 1000).build();
+    }
+
+    public ResponseCookie deleteRefreshCookie() {
+        return refreshCookieBuilder("").maxAge(0).build();
+    }
+
+    private ResponseCookie.ResponseCookieBuilder refreshCookieBuilder(String value) {
+        ResponseCookie.ResponseCookieBuilder builder = ResponseCookie.from(REFRESH_TOKEN_COOKIE, value)
+                .httpOnly(true)
+                .secure(cookieSecure)
+                .path("/")
+                .sameSite("Strict");
+        if (!cookieDomain.isBlank()) {
+            builder.domain(cookieDomain);
+        }
+        return builder;
+    }
+
+    public Duration refreshTokenTtl() {
+        return Duration.ofMillis(refreshTokenExpiration);
+    }
+
+    public Duration signupTicketTtl() {
+        return Duration.ofMinutes(10);
     }
 
     public ResponseCookie deleteCookie(String name) {

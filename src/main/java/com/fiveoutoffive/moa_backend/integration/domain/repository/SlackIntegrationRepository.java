@@ -9,4 +9,8 @@ public interface SlackIntegrationRepository {
     SlackIntegration save(SlackIntegration slackIntegration);
 
     Optional<SlackIntegration> findById(Long id);
+
+    Optional<SlackIntegration> findByRoomId(Long roomId);
+
+    void deleteById(Long id);
 }

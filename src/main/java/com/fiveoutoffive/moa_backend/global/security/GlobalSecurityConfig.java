@@ -27,6 +27,9 @@ public class GlobalSecurityConfig {
     private final GlobalJwtAuthenticationFilter globalJwtAuthenticationFilter;
     private final CustomAuthenticationEntryPoint authenticationEntryPoint;
     private final CustomAccessDeniedHandler accessDeniedHandler;
+    private final org.springframework.security.oauth2.client.web.OAuth2AuthorizationRequestResolver oauthRequestResolver;
+    private final org.springframework.security.web.authentication.AuthenticationSuccessHandler oauthSuccessHandler;
+    private final org.springframework.security.web.authentication.AuthenticationFailureHandler oauthFailureHandler;
 
     @Value("${app.cors.allowed-origins}")
     private String allowedOrigins;
@@ -37,14 +40,17 @@ public class GlobalSecurityConfig {
                 .csrf(AbstractHttpConfigurer::disable)
                 // CORS는 시큐리티 체인에서 전담한다. (WebConfig에서 중복 설정하지 않음)
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
-                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                // 소셜 로그인 인가 요청(state)만 짧게 세션에 보관한다. API 인증은 JWT 로만 한다.
+                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED))
                 .authorizeHttpRequests(auth -> auth
+                        // SSE(AI 어시스턴트)가 끝날 때의 비동기 디스패치. 인증은 최초 요청에서 이미 끝났다.
+                        .dispatcherTypeMatchers(jakarta.servlet.DispatcherType.ASYNC).permitAll()
                         // 1. 누구나 접근 가능 (인증, 마스터 데이터, 문서, 헬스체크)
                         //    새 공개 API가 생기면 반드시 이 목록에 명시적으로 추가해야 한다.
                         .requestMatchers(
                                 "/api/v1/auth/**",
-                                // 직군·직무·스킬 등 선택 목록과 등급·수수료 안내, 비로그인 메인 페이지 정보
-                                "/api/v1/meta/**",
+                                // 노션이 브라우저를 돌려보내는 주소라 토큰이 없다. state 로 방·요청자를 확인한다.
+                                "/api/v1/integrations/notion/callback",
                                 // 소셜 로그인 리다이렉트 경로
                                 "/oauth2/**",
                                 "/login/**",
@@ -53,7 +59,7 @@ public class GlobalSecurityConfig {
                                 "/actuator/health",
                                 "/actuator/info",
                                 // STOMP 핸드셰이크. WebSocket 프레임에는 시큐리티 필터가 걸리지 않으므로
-                                // 인증은 JwtHandshakeInterceptor가 핸드셰이크 시점에 한 번 수행한다.
+                                // 인증은 StompAuthChannelInterceptor가 CONNECT 프레임에서 수행한다.
                                 // 경로는 app.websocket.endpoint 와 맞춰야 한다.
                                 "/ws/**",
                                 // 시큐리티가 ERROR 디스패치까지 인가 검사를 하므로(6.x 기본값),
@@ -66,7 +72,7 @@ public class GlobalSecurityConfig {
                         .requestMatchers("/api/v1/examples/**").permitAll()
 
                         // 3. 관리자 전용
-                        .requestMatchers("/api/v1/admin/**", "/api/v1/*/admin/**").hasRole("ADMIN")
+                        .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
 
                         // 4. 나머지는 인증 필수(fail-closed).
                         //    permitAll()을 기본값으로 두면 @PreAuthorize를 빠뜨린 새 API가 전체 공개되므로,
@@ -77,6 +83,10 @@ public class GlobalSecurityConfig {
                         .authenticationEntryPoint(authenticationEntryPoint) // 401 (인증 안 됨)
                         .accessDeniedHandler(accessDeniedHandler)           // 403 (권한 없음)
                 )
+                .oauth2Login(oauth -> oauth
+                        .authorizationEndpoint(endpoint -> endpoint.authorizationRequestResolver(oauthRequestResolver))
+                        .successHandler(oauthSuccessHandler)
+                        .failureHandler(oauthFailureHandler))
                 .addFilterBefore(globalJwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();

@@ -1,23 +1,25 @@
 package com.fiveoutoffive.moa_backend.global.config;
 
 import com.fiveoutoffive.moa_backend.global.websocket.JwtHandshakeInterceptor;
+import com.fiveoutoffive.moa_backend.global.websocket.StompAuthChannelInterceptor;
+import java.util.Arrays;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.messaging.simp.config.ChannelRegistration;
 import org.springframework.messaging.simp.config.MessageBrokerRegistry;
+import org.springframework.scheduling.TaskScheduler;
 import org.springframework.web.socket.config.annotation.EnableWebSocketMessageBroker;
 import org.springframework.web.socket.config.annotation.StompEndpointRegistry;
 import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerConfigurer;
-
-import java.util.Arrays;
-import java.util.List;
 
 /**
  * STOMP over WebSocket 설정.
  *
  * <p>경로 규칙
  * <ul>
- *   <li>{@code /ws} — 핸드셰이크 엔드포인트. 인증은 {@link JwtHandshakeInterceptor} 가 담당한다.</li>
+ *   <li>{@code /ws} — 핸드셰이크 엔드포인트. 인증은 CONNECT 프레임에서 {@link StompAuthChannelInterceptor} 가 담당한다.</li>
  *   <li>{@code /topic/**} — 서버에서 클라이언트로 push하는 구독 경로</li>
  *   <li>{@code /app/**} — 클라이언트가 서버로 보낼 때 붙이는 prefix. {@code @MessageMapping} 이 받는다.</li>
  *   <li>{@code /user/**} — 특정 사용자에게만 보낼 때 사용한다. ({@code convertAndSendToUser})</li>
@@ -53,7 +55,12 @@ import java.util.List;
 @RequiredArgsConstructor
 public class StompWebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
+    /** 클라이언트가 20초마다 신호를 보낸다. 3회(60초) 끊기면 SimpleBroker 가 세션을 닫아 오프라인 처리된다. */
+    private static final long HEARTBEAT_MILLIS = 20_000;
+
     private final JwtHandshakeInterceptor jwtHandshakeInterceptor;
+    private final StompAuthChannelInterceptor stompAuthChannelInterceptor;
+    private final TaskScheduler webSocketHeartbeatScheduler;
 
     /** 핸드셰이크 경로. 바꾸면 GlobalSecurityConfig의 permitAll 경로도 함께 맞춰야 한다. */
     @Value("${app.websocket.endpoint}")
@@ -65,7 +72,9 @@ public class StompWebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     @Override
     public void configureMessageBroker(MessageBrokerRegistry registry) {
-        registry.enableSimpleBroker("/topic", "/queue");
+        registry.enableSimpleBroker("/topic", "/queue")
+                .setHeartbeatValue(new long[]{HEARTBEAT_MILLIS, HEARTBEAT_MILLIS})
+                .setTaskScheduler(webSocketHeartbeatScheduler);
         registry.setApplicationDestinationPrefixes("/app");
         registry.setUserDestinationPrefix("/user");
     }
@@ -76,6 +85,11 @@ public class StompWebSocketConfig implements WebSocketMessageBrokerConfigurer {
         registry.addEndpoint(endpoint)
                 .setAllowedOriginPatterns(parseOrigins())
                 .addInterceptors(jwtHandshakeInterceptor);
+    }
+
+    @Override
+    public void configureClientInboundChannel(ChannelRegistration registration) {
+        registration.interceptors(stompAuthChannelInterceptor);
     }
 
     private String[] parseOrigins() {

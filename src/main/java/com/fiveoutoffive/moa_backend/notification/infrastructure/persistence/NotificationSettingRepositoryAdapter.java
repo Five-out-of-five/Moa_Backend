@@ -3,8 +3,10 @@ package com.fiveoutoffive.moa_backend.notification.infrastructure.persistence;
 import com.fiveoutoffive.moa_backend.notification.domain.model.NotificationSetting;
 import com.fiveoutoffive.moa_backend.notification.domain.repository.NotificationSettingRepository;
 import com.fiveoutoffive.moa_backend.notification.infrastructure.mapper.NotificationSettingMapper;
+import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 @Repository
@@ -24,5 +26,25 @@ public class NotificationSettingRepositoryAdapter implements NotificationSetting
     public Optional<NotificationSetting> findById(Long id) {
         return springDataRepository.findById(id)
                 .map(notificationSettingMapper::toDomain);
+    }
+
+    @Override
+    public List<NotificationSetting> findByAccountIdAndRoomIdIsNull(Long accountId) {
+        return springDataRepository.findByAccountIdAndRoomIdIsNull(accountId).stream().map(notificationSettingMapper::toDomain).toList();
+    }
+
+    @Override
+    public List<NotificationSetting> findByAccountIdAndRoomId(Long accountId, Long roomId) {
+        return springDataRepository.findByAccountIdAndRoomId(accountId, roomId).stream().map(notificationSettingMapper::toDomain).toList();
+    }
+
+    @Override
+    public void deleteByAccountIdAndRoomId(Long accountId, Long roomId) {
+        springDataRepository.deleteByAccountIdAndRoomId(accountId, roomId);
+    }
+
+    @Override
+    public void deleteSetting(@Param("id") Long id) {
+        springDataRepository.deleteSetting(id);
     }
 }

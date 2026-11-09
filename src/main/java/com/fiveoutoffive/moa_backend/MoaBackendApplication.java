@@ -1,22 +1,17 @@
 package com.fiveoutoffive.moa_backend;
 
-import jakarta.annotation.PostConstruct;
-import java.util.TimeZone;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+import java.util.TimeZone;
 
 @SpringBootApplication
 public class MoaBackendApplication {
 
     public static void main(String[] args) {
+        // 저장 시각은 UTC 로 통일한다. (API 명세 공통 규칙 "날짜·시간")
+        // 커넥션 풀이 만들어지기 전에 지정해야 JDBC 세션도 같은 시간대를 쓴다.
+        TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
         SpringApplication.run(MoaBackendApplication.class, args);
-    }
-
-    // 컨테이너 환경은 시간대가 UTC로 고정된 경우가 많으므로,
-    // 애플리케이션 기동 시 JVM 기본 타임존을 한국 시간(KST)으로 지정한다.
-    // 이후 new Date(), LocalDateTime.now(), 로그/JPA Auditing 타임스탬프가 모두 KST 기준으로 동작한다.
-    @PostConstruct
-    public void setDefaultTimeZone() {
-        TimeZone.setDefault(TimeZone.getTimeZone("Asia/Seoul"));
     }
 }

@@ -6,12 +6,15 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.util.StringUtils;
+import java.net.URI;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.S3Configuration;
+import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 
 @Slf4j
 @Configuration
@@ -25,11 +28,29 @@ public class S3Config {
 
     @Bean
     public S3Client s3Client(S3Settings s3Settings) {
-        // 엔드포인트는 지정하지 않는다. SDK가 리전에 맞는 S3 엔드포인트를 자동으로 선택한다.
-        return S3Client.builder()
+        var builder = S3Client.builder()
                 .region(Region.of(s3Settings.getRegion()))
-                .credentialsProvider(credentialsProvider())
-                .build();
+                .credentialsProvider(credentialsProvider());
+
+        // S3_ENDPOINT 가 있을 때만(MinIO 등) 주소를 지정한다. 없으면 SDK가 리전에 맞는 AWS 엔드포인트를 선택한다.
+        if (s3Settings.usesCustomEndpoint()) {
+            builder.endpointOverride(URI.create(s3Settings.getEndpoint())).forcePathStyle(true);
+        }
+        return builder.build();
+    }
+
+    /** 서명 URL 은 브라우저가 접속하므로 공개 주소로 서명해야 한다. (서명에 호스트가 포함된다) */
+    @Bean
+    public S3Presigner s3Presigner(S3Settings s3Settings) {
+        var builder = S3Presigner.builder()
+                .region(Region.of(s3Settings.getRegion()))
+                .credentialsProvider(credentialsProvider());
+
+        if (s3Settings.usesCustomEndpoint()) {
+            builder.endpointOverride(URI.create(s3Settings.getPublicEndpoint()))
+                    .serviceConfiguration(S3Configuration.builder().pathStyleAccessEnabled(true).build());
+        }
+        return builder.build();
     }
 
     /**
