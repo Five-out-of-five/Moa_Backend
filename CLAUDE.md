@@ -8,6 +8,7 @@
 |---|---|
 | [docs/conventions.md](docs/conventions.md) | 폴더 구조, 코드 규칙, 새 API 추가 순서 |
 | [docs/collaboration.md](docs/collaboration.md) | 도메인 경계, 도메인 간 호출 방법, 브랜치·PR |
+| [docs/pull-request.md](docs/pull-request.md) | PR 대상 브랜치, 제목, 본문 양식, 올리는 절차 |
 | [docs/local-setup.md](docs/local-setup.md) | 로컬 실행, MinIO ↔ AWS 전환 |
 | [docs/ai-server.md](docs/ai-server.md) | Python AI 서버 호출 계약과 장애 처리 |
 
@@ -22,6 +23,7 @@
 - AI 는 `AiGateway`(도메인 코드) 또는 `AiServerPort` 로만 호출한다. AI 서버 장애가 사용자 요청을 깨면 안 된다.
 - 스토리지는 `FileStoragePort`, 실시간 전송은 `RealtimePublisher`, 알림은 `NotificationSender`, 브리핑 이벤트는 `BoardEventRecorder` 만 쓴다.
 - 비밀값은 커밋하지 않는다. `.env` 는 gitignore 대상이고, 새 환경변수는 `.env.example` 에 키만 추가한다.
+- PR 은 지정이 없으면 `develop` 으로 올린다. 만들기 전에 [docs/pull-request.md](docs/pull-request.md) 와 `.github/PULL_REQUEST_TEMPLATE.md` 를 읽고 그 양식대로 작성한다.
 
 ## 자주 쓰는 명령
 
