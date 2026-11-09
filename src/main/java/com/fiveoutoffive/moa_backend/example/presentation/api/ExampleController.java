@@ -13,7 +13,6 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -42,8 +41,7 @@ public class ExampleController {
         Long createdId = exampleCommandUseCase.handle(command);
         ExampleResponse responseData = ExampleResponse.of(createdId);
 
-        return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponse.created("EXAMPLE_CREATED", "예시 생성에 성공했습니다.", responseData));
+        return ResponseEntity.ok(ApiResponse.success(responseData));
     }
 
     @GetMapping("/{exampleId}")
@@ -54,11 +52,7 @@ public class ExampleController {
     ) {
         ExampleResponse responseData = ExampleResponse.of(exampleId);
 
-        return ResponseEntity.ok(ApiResponse.success(
-                "EXAMPLE_FOUND",
-                "조회에 성공했습니다.",
-                responseData
-        ));
+        return ResponseEntity.ok(ApiResponse.success(responseData));
     }
 
     /**
@@ -79,10 +73,6 @@ public class ExampleController {
         // DB/도메인은 object key만 다루고, 절대 URL 조립은 응답 직렬화 시점에 일어난다.
         ExampleResponse responseData = new ExampleResponse(exampleId, uploadedKey);
 
-        return ResponseEntity.ok(ApiResponse.success(
-                "EXAMPLE_IMAGE_UPLOADED",
-                "이미지 업로드에 성공했습니다.",
-                responseData
-        ));
+        return ResponseEntity.ok(ApiResponse.success(responseData));
     }
 }

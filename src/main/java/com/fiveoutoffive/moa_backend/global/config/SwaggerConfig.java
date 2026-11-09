@@ -19,7 +19,6 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.method.HandlerMethod;
 
-import java.time.Instant;
 
 @Configuration
 public class SwaggerConfig {
@@ -49,13 +48,7 @@ public class SwaggerConfig {
                     String statusCode = String.valueOf(errorCode.getStatus().value());
 
                     // 문서용 예시이므로 traceId는 고정값을 넣는다.
-                    ErrorResponse errorResponseExample = new ErrorResponse(
-                            Instant.parse("2026-05-21T07:09:00Z"),
-                            errorCode.getStatus().value(),
-                            errorCode.getCode(),
-                            errorCode.getMessage(),
-                            "example-trace-id-1234"
-                    );
+                    ErrorResponse errorResponseExample = ErrorResponse.of(errorCode.getCode(), errorCode.getMessage(), "example-trace-id-1234", null, null);
 
                     Example example = new Example();
                     example.value(errorResponseExample);

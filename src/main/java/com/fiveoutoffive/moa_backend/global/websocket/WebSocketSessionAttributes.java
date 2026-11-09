@@ -3,7 +3,7 @@ package com.fiveoutoffive.moa_backend.global.websocket;
 /**
  * WebSocket 세션 속성 키.
  *
- * <p>핸드셰이크에서 넣은 값을 STOMP 이벤트 리스너와 {@code @MessageMapping} 핸들러가 다시 꺼내 쓴다.
+ * <p>STOMP CONNECT 인증에서 넣은 값을 이벤트 리스너와 {@code @MessageMapping} 핸들러가 다시 꺼내 쓴다.
  * 문자열 리터럴이 흩어지면 오타로 값이 항상 null이 되어도 컴파일 에러가 나지 않으므로 여기에 모아둔다.
  */
 public final class WebSocketSessionAttributes {

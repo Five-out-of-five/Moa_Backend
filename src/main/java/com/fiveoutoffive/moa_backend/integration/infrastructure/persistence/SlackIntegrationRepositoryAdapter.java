@@ -25,4 +25,14 @@ public class SlackIntegrationRepositoryAdapter implements SlackIntegrationReposi
         return springDataRepository.findById(id)
                 .map(slackIntegrationMapper::toDomain);
     }
+
+    @Override
+    public Optional<SlackIntegration> findByRoomId(Long roomId) {
+        return springDataRepository.findByRoomId(roomId).map(slackIntegrationMapper::toDomain);
+    }
+
+    @Override
+    public void deleteById(Long id) {
+        springDataRepository.deleteById(id);
+    }
 }

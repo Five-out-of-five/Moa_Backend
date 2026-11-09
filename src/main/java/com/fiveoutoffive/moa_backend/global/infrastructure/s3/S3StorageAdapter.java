@@ -3,6 +3,10 @@ package com.fiveoutoffive.moa_backend.global.infrastructure.s3;
 import com.fiveoutoffive.moa_backend.global.exception.BusinessException;
 import com.fiveoutoffive.moa_backend.global.exception.GlobalErrorCode;
 import com.fiveoutoffive.moa_backend.global.port.out.FileStoragePort;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -10,9 +14,9 @@ import org.springframework.web.multipart.MultipartFile;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
+import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
-
-import java.util.UUID;
+import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 
 @Slf4j
 @Component
@@ -21,6 +25,21 @@ public class S3StorageAdapter implements FileStoragePort {
 
     private final S3Client s3Client;
     private final S3Settings s3Settings;
+    private final S3Presigner s3Presigner;
+
+    @Override
+    public String createDownloadUrl(String key, String downloadName, Duration ttl) {
+        GetObjectRequest.Builder request = GetObjectRequest.builder()
+                .bucket(s3Settings.getBucket())
+                .key(key);
+        if (downloadName != null) {
+            request.responseContentDisposition("attachment; filename*=UTF-8''"
+                    + URLEncoder.encode(downloadName, StandardCharsets.UTF_8).replace("+", "%20"));
+        }
+        return s3Presigner.presignGetObject(builder -> builder.signatureDuration(ttl).getObjectRequest(request.build()))
+                .url()
+                .toString();
+    }
 
     @Override
     public String uploadFile(MultipartFile file, String directory) {

@@ -25,4 +25,14 @@ public class NotionIntegrationRepositoryAdapter implements NotionIntegrationRepo
         return springDataRepository.findById(id)
                 .map(notionIntegrationMapper::toDomain);
     }
+
+    @Override
+    public Optional<NotionIntegration> findByRoomId(Long roomId) {
+        return springDataRepository.findByRoomId(roomId).map(notionIntegrationMapper::toDomain);
+    }
+
+    @Override
+    public void deleteById(Long id) {
+        springDataRepository.deleteById(id);
+    }
 }

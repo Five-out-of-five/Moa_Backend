@@ -1,10 +1,15 @@
 package com.fiveoutoffive.moa_backend.room.infrastructure.persistence;
 
+import com.fiveoutoffive.moa_backend.room.domain.model.JoinRequestStatus;
 import com.fiveoutoffive.moa_backend.room.domain.model.RoomJoinRequest;
 import com.fiveoutoffive.moa_backend.room.domain.repository.RoomJoinRequestRepository;
 import com.fiveoutoffive.moa_backend.room.infrastructure.mapper.RoomJoinRequestMapper;
+import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Repository;
 
 @Repository
@@ -24,5 +29,20 @@ public class RoomJoinRequestRepositoryAdapter implements RoomJoinRequestReposito
     public Optional<RoomJoinRequest> findById(Long id) {
         return springDataRepository.findById(id)
                 .map(roomJoinRequestMapper::toDomain);
+    }
+
+    @Override
+    public Optional<RoomJoinRequest> findByRoomIdAndAccountIdAndStatus(Long roomId, Long accountId, JoinRequestStatus status) {
+        return springDataRepository.findByRoomIdAndAccountIdAndStatus(roomId, accountId, status).map(roomJoinRequestMapper::toDomain);
+    }
+
+    @Override
+    public Page<RoomJoinRequest> findByRoomIdAndStatus(Long roomId, JoinRequestStatus status, Pageable pageable) {
+        return springDataRepository.findByRoomIdAndStatus(roomId, status, pageable).map(roomJoinRequestMapper::toDomain);
+    }
+
+    @Override
+    public List<RoomJoinRequest> findByStatusAndExpiresAtBefore(JoinRequestStatus status, LocalDateTime time) {
+        return springDataRepository.findByStatusAndExpiresAtBefore(status, time).stream().map(roomJoinRequestMapper::toDomain).toList();
     }
 }

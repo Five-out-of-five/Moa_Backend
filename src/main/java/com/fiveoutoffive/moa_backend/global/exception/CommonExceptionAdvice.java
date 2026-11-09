@@ -12,10 +12,12 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.method.annotation.HandlerMethodValidationException;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.multipart.support.MissingServletRequestPartException;
 import org.springframework.web.servlet.NoHandlerFoundException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
-import java.time.Instant;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -113,6 +115,26 @@ public interface CommonExceptionAdvice {
         return toResponse(errorCode, errorMessage, traceId);
     }
 
+    // 3-1. 업로드 용량 초과 (spring.servlet.multipart 한도)
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    default ResponseEntity<ErrorResponse> handleMaxUploadSizeExceededException(MaxUploadSizeExceededException e) {
+        String traceId = getOrCreateTraceId();
+        GlobalErrorCode errorCode = GlobalErrorCode.UPLOAD_SIZE_EXCEEDED;
+        getLogger().warn("[MaxUploadSizeExceededException] traceId: {}, message: {}", traceId, e.getMessage());
+        recordApiError("upload_size_exceeded");
+        return toResponse(errorCode, errorCode.getMessage(), traceId);
+    }
+
+    // 3-2. multipart 파트 누락, 경로·쿼리 값의 제약 위반
+    @ExceptionHandler({MissingServletRequestPartException.class, HandlerMethodValidationException.class})
+    default ResponseEntity<ErrorResponse> handleInvalidPartExceptions(Exception e) {
+        String traceId = getOrCreateTraceId();
+        GlobalErrorCode errorCode = GlobalErrorCode.INVALID_REQUEST;
+        getLogger().warn("[BadRequestException] traceId: {}, message: {}", traceId, e.getMessage());
+        recordApiError("bad_request");
+        return toResponse(errorCode, errorCode.getMessage(), traceId);
+    }
+
     // 4. API 경로는 일치하지만 HTTP 메서드(GET, POST 등)가 잘못된 경우
     @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
     default ResponseEntity<ErrorResponse> handleHttpRequestMethodNotSupportedException(HttpRequestMethodNotSupportedException e) {
@@ -155,15 +177,7 @@ public interface CommonExceptionAdvice {
 
     private ResponseEntity<ErrorResponse> toResponse(BaseErrorCode errorCode, String message, String traceId,
                                                      List<ErrorResponse.FieldErrorDetail> errors, Object data) {
-        ErrorResponse response = new ErrorResponse(
-                Instant.now(),
-                errorCode.getStatus().value(),
-                errorCode.getCode(),
-                message,
-                traceId,
-                errors,
-                data
-        );
+        ErrorResponse response = ErrorResponse.of(errorCode.getCode(), message, traceId, errors, data);
         return ResponseEntity.status(errorCode.getStatus()).body(response);
     }
 

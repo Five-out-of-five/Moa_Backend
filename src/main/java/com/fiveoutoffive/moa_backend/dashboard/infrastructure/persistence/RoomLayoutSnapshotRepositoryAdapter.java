@@ -25,4 +25,19 @@ public class RoomLayoutSnapshotRepositoryAdapter implements RoomLayoutSnapshotRe
         return springDataRepository.findById(id)
                 .map(roomLayoutSnapshotMapper::toDomain);
     }
+
+    @Override
+    public Optional<RoomLayoutSnapshot> findByRoomId(Long roomId) {
+        return springDataRepository.findByRoomId(roomId).map(roomLayoutSnapshotMapper::toDomain);
+    }
+
+    @Override
+    public void deleteByRoomId(Long roomId) {
+        springDataRepository.deleteByRoomId(roomId);
+    }
+
+    @Override
+    public void flush() {
+        springDataRepository.flush();
+    }
 }

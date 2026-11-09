@@ -9,4 +9,10 @@ public interface RoomLayoutSnapshotRepository {
     RoomLayoutSnapshot save(RoomLayoutSnapshot roomLayoutSnapshot);
 
     Optional<RoomLayoutSnapshot> findById(Long id);
+
+    Optional<RoomLayoutSnapshot> findByRoomId(Long roomId);
+
+    void deleteByRoomId(Long roomId);
+
+    void flush();
 }
