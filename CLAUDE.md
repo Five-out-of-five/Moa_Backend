@@ -12,6 +12,7 @@
 | [docs/local-setup.md](docs/local-setup.md) | 로컬 실행, MinIO ↔ AWS 전환 |
 | [docs/ai-server.md](docs/ai-server.md) | Python AI 서버 호출 계약과 장애 처리 |
 | [docs/deploy.md](docs/deploy.md) | 운영 배포(오라클 + Docker), Nginx·HTTPS, 포트 구성 |
+| [docs/aws-migration.md](docs/aws-migration.md) | AWS 이전 시 바뀌는 환경변수·compose·Nginx 설정 |
 
 기능의 기준은 저장소 밖 `moa_document/` 의 요구사항 명세, API 명세, 테이블 정의서다. 코드와 명세가 다르면 임의로 고치지 말고 차이를 먼저 알린다.
 

@@ -1,6 +1,7 @@
 # 운영 배포 (오라클 클라우드 + Docker)
 
 `moarang.kro.kr` 을 오라클 클라우드 인스턴스 한 대에 Docker 로 올리는 방법이다.
+AWS 로 옮길 때 바뀌는 값은 [aws-migration.md](aws-migration.md) 에 정리했다.
 
 ## 구성
 
