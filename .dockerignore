@@ -1,0 +1,11 @@
+# 이미지 빌드에 필요 없는 파일. 특히 .env 류 비밀값이 이미지에 들어가지 않게 한다.
+.env
+.env.*
+.git
+.gradle
+.idea
+build
+logs
+docs
+deploy
+*.md

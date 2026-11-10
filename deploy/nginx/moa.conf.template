@@ -1,0 +1,79 @@
+# Docker Nginx (docker-compose.prod.yml 의 nginx 서비스)
+# nginx 이미지가 기동할 때 ${S3_BUCKET} 만 치환해 /etc/nginx/conf.d/moa.conf 로 만든다.
+#
+# 요청 흐름: 브라우저 → 호스트 Nginx(80→443, TLS) → 127.0.0.1:8080 → 이 Nginx → app:8080 / minio:9000
+
+# WebSocket 업그레이드 요청일 때만 Connection: upgrade 를 보낸다.
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      '';
+}
+
+# 호스트 Nginx 를 거쳐 온 요청(Docker 게이트웨이·루프백 주소)만 X-Forwarded-Proto 를 믿는다.
+# 8080 으로 직접 들어온 요청이 https 라고 속이지 못하게 한다.
+geo $from_host_proxy {
+    default        0;
+    127.0.0.1/32   1;
+    172.16.0.0/12  1;
+}
+
+map "$from_host_proxy:$http_x_forwarded_proto" $forwarded_proto {
+    default            "";
+    "~^1:(?<p>https?)$" $p;
+}
+
+server {
+    listen 8080;
+    server_name _;
+
+    # 첨부 1건 20MB + multipart 여유분 (application.yaml 의 max-request-size 와 같다)
+    client_max_body_size 25m;
+
+    # 컨테이너를 다시 만들어 IP 가 바뀌어도 이름을 다시 찾도록 Docker 내장 DNS 를 쓴다.
+    resolver 127.0.0.11 valid=10s ipv6=off;
+    set $app_upstream     http://app:8080;
+    set $storage_upstream http://minio:9000;
+
+    # STOMP over WebSocket. 하트비트가 20초라 읽기 제한은 그보다 넉넉히 둔다.
+    location /ws {
+        proxy_pass $app_upstream;
+        proxy_http_version 1.1;
+        # location 에 proxy_set_header 가 있으면 server 단계 값을 물려받지 않으므로 location 마다 적는다.
+        proxy_set_header Host              $http_host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $forwarded_proto;
+        proxy_set_header Upgrade    $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_read_timeout 120s;
+        proxy_send_timeout 120s;
+    }
+
+    # MinIO. 서명 URL 은 Host 와 경로까지 서명하므로 경로를 바꾸지 않고 Host 를 그대로 넘긴다.
+    location ^~ /${S3_BUCKET}/ {
+        proxy_pass $storage_upstream;
+        proxy_http_version 1.1;
+        # location 에 proxy_set_header 가 있으면 server 단계 값을 물려받지 않으므로 location 마다 적는다.
+        proxy_set_header Host              $http_host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $forwarded_proto;
+        proxy_set_header Connection "";
+        proxy_buffering off;
+        proxy_request_buffering off;
+    }
+
+    # REST, OAuth, SSE(AI 응답 스트리밍). SSE 가 끊기지 않도록 버퍼링을 끄고 읽기 제한을 늘린다.
+    location / {
+        proxy_pass $app_upstream;
+        proxy_http_version 1.1;
+        # location 에 proxy_set_header 가 있으면 server 단계 값을 물려받지 않으므로 location 마다 적는다.
+        proxy_set_header Host              $http_host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $forwarded_proto;
+        proxy_set_header Connection "";
+        proxy_buffering off;
+        proxy_read_timeout 300s;
+    }
+}

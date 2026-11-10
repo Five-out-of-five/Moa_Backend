@@ -11,6 +11,7 @@
 | [docs/pull-request.md](docs/pull-request.md) | PR 대상 브랜치, 제목, 본문 양식, 올리는 절차 |
 | [docs/local-setup.md](docs/local-setup.md) | 로컬 실행, MinIO ↔ AWS 전환 |
 | [docs/ai-server.md](docs/ai-server.md) | Python AI 서버 호출 계약과 장애 처리 |
+| [docs/deploy.md](docs/deploy.md) | 운영 배포(오라클 + Docker), Nginx·HTTPS, 포트 구성 |
 
 기능의 기준은 저장소 밖 `moa_document/` 의 요구사항 명세, API 명세, 테이블 정의서다. 코드와 명세가 다르면 임의로 고치지 말고 차이를 먼저 알린다.
 

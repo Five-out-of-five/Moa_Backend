@@ -1,0 +1,126 @@
+# 운영 서버(오라클 클라우드 인스턴스)용 구성. 로컬 개발용은 docker-compose.yml 이다.
+#
+#   docker compose --env-file .env.prod -f docker-compose.prod.yml up -d --build
+#
+# 호스트에 여는 포트는 Docker Nginx 의 8080 하나뿐이다. PostgreSQL·Redis·MinIO·앱은 내부망에서만 통신하므로
+# 서버에 이미 떠 있는 DB·Redis 와 포트가 겹치지 않는다. 80→443 리다이렉트와 HTTPS 는 호스트 Nginx 가 맡는다.
+# (구성도와 절차: docs/deploy.md)
+name: moa
+
+services:
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    ports:
+      # 호스트 8080 을 다른 프로그램이 쓰고 있으면 .env.prod 의 NGINX_PORT 를 바꾸고 호스트 Nginx 의 proxy_pass 도 맞춘다.
+      - "${NGINX_PORT:-8080}:8080"
+    environment:
+      # 템플릿의 ${S3_BUCKET} 만 치환된다. (nginx 이미지의 envsubst 는 정의된 변수만 바꾼다)
+      S3_BUCKET: ${S3_BUCKET:?S3_BUCKET 을 .env.prod 에 넣어 주세요}
+    volumes:
+      - ./deploy/nginx/moa.conf.template:/etc/nginx/templates/moa.conf.template:ro
+    depends_on:
+      - app
+      - minio
+
+  app:
+    build: .
+    image: moa-backend:latest
+    restart: unless-stopped
+    env_file: .env.prod
+    environment:
+      # 내부망 주소는 여기서 고정한다. .env.prod 에 같은 키가 있어도 이 값이 우선한다.
+      DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-moa}
+      DB_USERNAME: ${POSTGRES_USER:-moa}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD 를 .env.prod 에 넣어 주세요}
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD 를 .env.prod 에 넣어 주세요}
+      # 서버는 내부 주소로 올리고, 브라우저에 주는 URL(서명 URL·공개 이미지)은 공개 도메인으로 만든다.
+      S3_ENDPOINT: http://minio:9000
+      S3_PUBLIC_ENDPOINT: ${PUBLIC_URL:?PUBLIC_URL 을 .env.prod 에 넣어 주세요}
+      AWS_ACCESS_KEY: ${MINIO_ROOT_USER:-moa}
+      AWS_SECRET_KEY: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD 를 .env.prod 에 넣어 주세요}
+      # application.yaml 의 SQL debug 로그를 운영에서는 끈다.
+      LOGGING_LEVEL_ORG_HIBERNATE_SQL: info
+    extra_hosts:
+      # 같은 서버에 Python AI 서버를 띄우면 AI_SERVER_URL=http://host.docker.internal:8000 으로 부른다.
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - app-logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+
+  postgres:
+    # moa_schema.sql 의 CREATE EXTENSION vector 때문에 pgvector 이미지를 쓴다.
+    image: pgvector/pgvector:pg17
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-moa}
+      POSTGRES_USER: ${POSTGRES_USER:-moa}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      TZ: UTC
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD}", "--appendonly", "yes"]
+    environment:
+      REDISCLI_AUTH: ${REDIS_PASSWORD}
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  minio:
+    # 공식 minio/minio 이미지는 공개 배포가 중단되어 받을 수 없다. 같은 서버를 패키징한 bitnami 이미지를 쓴다.
+    image: bitnamilegacy/minio:2025.4.22
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-moa}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    volumes:
+      - minio-data:/bitnami/minio/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # 버킷을 만들고 프로필·방 대표 이미지(public/) 만 공개 읽기로 연다. 첨부 파일은 서명 URL 로만 받는다.
+  minio-init:
+    image: bitnamilegacy/minio:2025.4.22
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-moa}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      S3_BUCKET: ${S3_BUCKET}
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 \"$$MINIO_ROOT_USER\" \"$$MINIO_ROOT_PASSWORD\" &&
+      mc mb --ignore-existing \"local/$$S3_BUCKET\" &&
+      mc anonymous set download \"local/$$S3_BUCKET/public\"
+      "
+
+volumes:
+  postgres-data:
+  redis-data:
+  minio-data:
+  app-logs:

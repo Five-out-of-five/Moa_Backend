@@ -166,6 +166,7 @@ src/main/java/com/fiveoutoffive/moa_backend
 | [협업 가이드](docs/collaboration.md) | 담당 영역, 도메인 사이의 규칙, 브랜치와 PR |
 | [PR 작성 규칙](docs/pull-request.md) | PR 제목·본문 양식, 올리기 전 확인 |
 | [AI 서버 연동](docs/ai-server.md) | Python AI 서버 호출 계약과 장애 처리 |
+| [운영 배포](docs/deploy.md) | 오라클 클라우드 Docker 배포, Nginx·HTTPS, 포트 구성 |
 | ERD | <!-- TODO: ERDCloud 링크 --> |
 
 <br>

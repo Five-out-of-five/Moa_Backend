@@ -18,6 +18,7 @@
 | 운영 | `report`, `notice`, `admin` | |
 | 실시간 | `global/websocket`, `global/config/StompWebSocketConfig` | BE-3 |
 | 공통 | `global` 나머지, `docker-compose.yml` | |
+| 배포 | `Dockerfile`, `docker-compose.prod.yml`, `deploy/` | |
 
 ## 도메인 사이의 규칙
 
@@ -56,7 +57,7 @@
 
 아래는 여러 도메인이 함께 쓰므로 먼저 팀에 알리고 PR 에 영향 범위를 적는다.
 
-- `global/**`, `application*.yaml`, `build.gradle`, `docker-compose.yml`
+- `global/**`, `application*.yaml`, `build.gradle`, `docker-compose*.yml`, `Dockerfile`, `deploy/**`
 - `global/websocket/**` 은 담당인 BE-3 에게 먼저 알린다.
 - `src/main/resources/db/migration` — 버전 번호가 겹치지 않게 PR 생성 순서대로 번호를 잡고, 머지 전에 최신 develop 으로 다시 확인한다.
 - API 계약(경로·필드·에러 코드)을 바꾸면 명세 문서를 먼저 고치고 프론트에 공유한다.
