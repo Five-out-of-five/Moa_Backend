@@ -4,7 +4,6 @@ import com.fiveoutoffive.moa_backend.ai.domain.model.AiCallLog;
 import com.fiveoutoffive.moa_backend.ai.domain.model.AiCallStatus;
 import com.fiveoutoffive.moa_backend.ai.domain.model.AiFeature;
 import com.fiveoutoffive.moa_backend.ai.domain.model.AiUsageQuota;
-import com.fiveoutoffive.moa_backend.ai.domain.repository.AiCallLogRepository;
 import com.fiveoutoffive.moa_backend.ai.domain.repository.AiUsageQuotaRepository;
 import com.fiveoutoffive.moa_backend.ai.exception.AiErrorCode;
 import com.fiveoutoffive.moa_backend.global.exception.BusinessException;
@@ -25,7 +24,7 @@ public class AiGateway {
 
     private final AiServerPort aiServerPort;
     private final AiUsageQuotaRepository quotaRepository;
-    private final AiCallLogRepository callLogRepository;
+    private final AiCallLogWriter callLogWriter;
     private final AiQuotaProperties quotaProperties;
 
     /** 사용자가 직접 호출하는 기능. 한도 초과는 429, 서버 불가는 503 으로 응답한다. */
@@ -58,7 +57,7 @@ public class AiGateway {
     }
 
     public void log(Long roomId, Long accountId, AiFeature feature, long startedAt, AiCallStatus status, String error) {
-        callLogRepository.save(AiCallLog.builder().feature(feature).roomId(roomId).accountId(accountId).latencyMs((int) (System.currentTimeMillis() - startedAt)).status(status).errorMessage(error).build());
+        callLogWriter.write(AiCallLog.builder().feature(feature).roomId(roomId).accountId(accountId).latencyMs((int) (System.currentTimeMillis() - startedAt)).status(status).errorMessage(error).build());
     }
 
     private <T> Optional<T> tryCall(Long roomId, Long accountId, AiFeature feature, String path, Object body, Class<T> type) {

@@ -80,8 +80,10 @@ public class SlackIntegrationService implements SlackIntegrationUseCase {
     @Override
     public PageResponse<SlackDeliveryResponse> getDeliveries(Long accountId, Long roomId, SlackDeliveryStatus status, Pageable pageable) {
         access.requireOwner(roomId, accountId);
-        Long id = require(roomId).getId();
-        Page<SlackDeliveryLog> page = status == null ? logRepository.findByIntegrationId(id, pageable) : logRepository.findByIntegrationIdAndStatus(id, status, pageable);
+        // API 명세에 이 API 의 에러가 없다. 연결 전이면 이력이 없는 것이므로 빈 페이지를 준다.
+        Long id = repository.findByRoomId(roomId).map(SlackIntegration::getId).orElse(null);
+        Page<SlackDeliveryLog> page = id == null ? Page.empty(pageable)
+                : status == null ? logRepository.findByIntegrationId(id, pageable) : logRepository.findByIntegrationIdAndStatus(id, status, pageable);
         return Pages.response(page.map(l -> new SlackDeliveryResponse(l.getEventType(), l.getStatus(), l.getRetryCount(), l.getErrorMessage(), l.getCreatedAt())));
     }
 

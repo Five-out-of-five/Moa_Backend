@@ -189,6 +189,11 @@ public class DashboardService implements DashboardUseCase {
     }
 
     private void validate(List<WidgetPlacement> placements) {
+        // 종류 없음·같은 종류 중복은 DB(uk_room_widget_type)에서 500 으로 터지기 전에 막는다. (AI 구성 적용·추천 응답)
+        if (placements.stream().anyMatch(p -> p.widgetType() == null)
+                || placements.stream().map(WidgetPlacement::widgetType).distinct().count() != placements.size()) {
+            throw new BusinessException(GlobalErrorCode.INVALID_REQUEST);
+        }
         for (int i = 0; i < placements.size(); i++) {
             WidgetPlacement a = placements.get(i);
             int[] min = minSize(a.widgetType());

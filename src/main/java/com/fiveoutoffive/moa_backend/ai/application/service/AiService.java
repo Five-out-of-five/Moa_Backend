@@ -99,6 +99,7 @@ public class AiService implements AiUseCase {
         access.requireMember(roomId, accountId);
         gateway.requireQuota(roomId, AiFeature.ASSISTANT);
         if (!aiServerPort.isAvailable()) {
+            gateway.log(roomId, accountId, AiFeature.ASSISTANT, System.currentTimeMillis(), AiCallStatus.FAILED, "AI server unavailable");
             throw new BusinessException(AiErrorCode.AI_UNAVAILABLE);
         }
         Map<String, Object> body = Map.of("roomId", roomId, "question", command.question(), "context", roomContext(roomId));

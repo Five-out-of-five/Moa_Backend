@@ -40,6 +40,7 @@ import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.scheduling.annotation.Async;
@@ -59,6 +60,7 @@ public class NotionIntegrationService implements NotionIntegrationUseCase {
     private final NotionIntegrationRepository repository;
     private final NotionExportLogRepository logRepository;
     private final NotionClient notionClient;
+    private final NotionFailureWriter failureWriter;
     private final IntegrationCipher cipher;
     private final RoomAccessService access;
     private final BoardSessionRepository sessionRepository;
@@ -145,7 +147,10 @@ public class NotionIntegrationService implements NotionIntegrationUseCase {
     @Override
     public PageResponse<NotionExportResponse> getExports(Long accountId, Long roomId, Pageable pageable) {
         access.requireOwner(roomId, accountId);
-        return Pages.response(logRepository.findByIntegrationId(require(roomId).getId(), pageable).map(this::toResponse));
+        // API 명세에 이 API 의 에러가 없다. 연결 전이면 이력이 없는 것이므로 빈 페이지를 준다.
+        return repository.findByRoomId(roomId)
+                .map(integration -> Pages.response(logRepository.findByIntegrationId(integration.getId(), pageable).map(this::toResponse)))
+                .orElseGet(() -> Pages.response(Page.<NotionExportResponse>empty(pageable)));
     }
 
     @Override
@@ -187,7 +192,8 @@ public class NotionIntegrationService implements NotionIntegrationUseCase {
             }
             return toResponse(logRepository.save(builder.notionPageId(pageId).status(NotionExportStatus.SUCCESS).errorMessage(null).exportedAt(KstTime.nowUtc()).build()));
         } catch (org.springframework.web.client.RestClientResponseException e) {
-            logRepository.save(builder.status(NotionExportStatus.FAILED).errorMessage(String.valueOf(e.getStatusCode().value())).exportedAt(KstTime.nowUtc()).build());
+            // 바로 뒤에 예외를 던져 이 트랜잭션은 롤백되므로, 실패 이력은 따로 저장한다.
+            failureWriter.saveLog(builder.status(NotionExportStatus.FAILED).errorMessage(String.valueOf(e.getStatusCode().value())).exportedAt(KstTime.nowUtc()).build());
             if (e.getStatusCode().value() == 401) {
                 throw expired(integration);
             }
@@ -204,7 +210,8 @@ public class NotionIntegrationService implements NotionIntegrationUseCase {
     }
 
     private BusinessException expired(NotionIntegration integration) {
-        repository.save(integration.toBuilder().tokenExpiredAt(KstTime.nowUtc()).build());
+        // 호출한 쪽이 이 예외로 롤백되므로 만료 표시는 따로 저장한다. 그래야 연동 조회에서 tokenExpired=true 가 보인다.
+        failureWriter.markTokenExpired(integration);
         return new BusinessException(IntegrationErrorCode.INTEGRATION_NOTION_AUTH_EXPIRED);
     }
 
