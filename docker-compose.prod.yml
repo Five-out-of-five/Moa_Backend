@@ -112,12 +112,24 @@ services:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-moa}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
       S3_BUCKET: ${S3_BUCKET}
-    entrypoint: >
-      /bin/sh -c "
-      mc alias set local http://minio:9000 \"$$MINIO_ROOT_USER\" \"$$MINIO_ROOT_PASSWORD\" &&
-      mc mb --ignore-existing \"local/$$S3_BUCKET\" &&
-      mc anonymous set download \"local/$$S3_BUCKET/public\"
-      "
+    # bitnami 이미지는 첫 기동 때 MinIO 를 잠깐 켰다 끄고 다시 켠다. 그 사이 healthcheck 가 먼저 통과할 수 있어
+    # 접속을 최대 60초 재시도한다. 끝내 실패하면 마지막 시도의 에러를 그대로 보여 준다.
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        i=0
+        until mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD" >/dev/null 2>&1; do
+          i=$$((i + 1))
+          if [ "$$i" -ge 30 ]; then
+            echo "MinIO 접속 실패: .env.prod 의 MINIO_ROOT_USER, MINIO_ROOT_PASSWORD 와 minio 로그를 확인하세요." >&2
+            mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD"
+            exit 1
+          fi
+          echo "MinIO 준비 대기 중... ($$i/30)"
+          sleep 2
+        done
+        mc mb --ignore-existing "local/$$S3_BUCKET" &&
+        mc anonymous set download "local/$$S3_BUCKET/public"
 
 volumes:
   postgres-data:
