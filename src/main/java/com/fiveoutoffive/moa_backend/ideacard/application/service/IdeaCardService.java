@@ -102,6 +102,10 @@ public class IdeaCardService implements IdeaCardUseCase {
         BoardSession session = sessionRepository.findFirstByRoomIdAndStatus(roomId, SessionStatus.IN_PROGRESS)
                 .orElseThrow(() -> new BusinessException(SessionErrorCode.SESSION_NONE_IN_PROGRESS));
         List<Long> fileIds = command.fileIds() == null ? List.of() : command.fileIds();
+        // 같은 파일을 두 번 보내면 card_file 유일 제약(uk_card_file_file)에서 500 이 나므로 미리 막는다.
+        if (Set.copyOf(fileIds).size() != fileIds.size()) {
+            throw new BusinessException(GlobalErrorCode.INVALID_REQUEST);
+        }
         fileAttachSupport.requireAttachable(roomId, accountId, fileIds, FileGroup.CARD_ATTACHMENT, 0);
         IdeaCard card = cardRepository.save(IdeaCard.builder().roomId(roomId).sessionId(session.getId()).cardType(command.cardType()).title(command.title()).content(command.content())
                 .writerAccountId(accountId).sortOrder(cardRepository.findMaxSortOrder(session.getId(), command.cardType()) + 1).isAiGenerated(false).build());
@@ -276,8 +280,8 @@ public class IdeaCardService implements IdeaCardUseCase {
     @Override
     public void removeFile(Long accountId, Long roomId, Long cardId, Long fileId) {
         access.requireMember(roomId, accountId);
-        IdeaCard card = find(roomId, cardId);
-        requireWriter(card, accountId);
+        // 요구사항 27: 마감된 회차의 카드는 수정·삭제 불가(읽기 전용). 첨부 추가와 같은 검사를 한다.
+        writable(roomId, cardId, accountId);
         CardFile link = fileRepository.findByCardIdAndFileId(cardId, fileId).orElseThrow(() -> new BusinessException(FileErrorCode.FILE_NOT_FOUND));
         fileRepository.deleteById(link.getId());
         fileAttachSupport.softDelete(List.of(fileId));
