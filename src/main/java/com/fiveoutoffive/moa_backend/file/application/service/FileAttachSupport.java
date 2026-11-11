@@ -6,11 +6,13 @@ import com.fiveoutoffive.moa_backend.file.domain.model.StoredFile;
 import com.fiveoutoffive.moa_backend.file.domain.repository.StoredFileRepository;
 import com.fiveoutoffive.moa_backend.file.exception.FileErrorCode;
 import com.fiveoutoffive.moa_backend.global.exception.BusinessException;
+import com.fiveoutoffive.moa_backend.global.exception.GlobalErrorCode;
 import com.fiveoutoffive.moa_backend.global.port.out.FileStoragePort;
 import com.fiveoutoffive.moa_backend.global.util.KstTime;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -44,6 +46,10 @@ public class FileAttachSupport {
 
     /** 새로 연결할 파일들을 검증한다. currentCount 는 이미 연결된 개수다. */
     public void requireAttachable(Long roomId, Long accountId, Collection<Long> fileIds, FileGroup group, int currentCount) {
+        // 같은 파일 ID 가 두 번 오면 개별 검사를 모두 통과한 뒤 연결 테이블 유일 인덱스에서 500 이 나므로 먼저 막는다.
+        if (new HashSet<>(fileIds).size() != fileIds.size()) {
+            throw new BusinessException(GlobalErrorCode.INVALID_REQUEST);
+        }
         if (currentCount + fileIds.size() > MAX_ATTACHMENTS) {
             throw new BusinessException(FileErrorCode.FILE_ATTACHMENT_LIMIT_EXCEEDED);
         }
