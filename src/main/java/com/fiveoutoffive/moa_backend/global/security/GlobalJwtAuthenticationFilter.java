@@ -7,7 +7,6 @@ import io.jsonwebtoken.ExpiredJwtException;
 import io.jsonwebtoken.JwtException;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
-import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
@@ -26,7 +25,12 @@ import java.util.Set;
 
 /**
  * 요청마다 JWT를 검증해 SecurityContext에 인증 정보를 채운다.
- * 토큰은 Authorization 헤더(Bearer) 또는 accessToken 쿠키에서 읽는다.
+ *
+ * <p>토큰은 {@code Authorization: Bearer} 헤더에서만 읽는다. (API 명세 공통 규칙 '인증')
+ * accessToken 쿠키로는 인증하지 않는다. 운영 도메인 moarang.kro.kr 의 kro.kr 은 공개 접미사 목록(PSL)에 없어
+ * 브라우저가 다른 *.kro.kr 사이트도 같은 사이트로 보므로, SameSite 쿠키로는 CSRF 를 막을 수 없다.
+ * 프론트 BFF(Next 서버)는 Spring 을 부를 때 항상 Bearer 헤더를 붙인다.
+ * 쿠키 인증은 WebSocket(/ws) 핸드셰이크에서만 쓰며, 그쪽은 Origin 허용 목록 검사로 막는다. (11/12 회의 결정)
  */
 @Slf4j
 @Component
@@ -39,7 +43,7 @@ public class GlobalJwtAuthenticationFilter extends OncePerRequestFilter {
     private final ErrorResponseWriter errorResponseWriter;
 
     // 로그인/가입/토큰재발급처럼 "기존 세션 상태와 무관하게 항상 동작해야 하는" 엔드포인트.
-    // 브라우저에 남아있는 낡은 토큰 쿠키 때문에 신규 로그인 시도 자체가 401로 막히는 것을 방지한다.
+    // 만료된 액세스 토큰을 붙인 채 호출해도 로그인·재발급 자체가 401로 막히지 않게 한다.
     private static final String PUBLIC_AUTH_PREFIX = "/api/v1/auth/";
 
     @Override
@@ -89,25 +93,12 @@ public class GlobalJwtAuthenticationFilter extends OncePerRequestFilter {
         filterChain.doFilter(request, response);
     }
 
+    /** Authorization: Bearer {token} 만 받는다. 쿠키는 보지 않는다(클래스 주석 참고). */
     private String resolveToken(HttpServletRequest request) {
-        // 1. Authorization: Bearer {token}
         String header = request.getHeader("Authorization");
         if (StringUtils.hasText(header) && header.startsWith(BEARER_PREFIX)) {
             return header.substring(BEARER_PREFIX.length());
         }
-
-        // 2. accessToken 쿠키
-        //    값이 빈 쿠키가 남아있는 경우가 있어 hasText로 걸러낸다.
-        //    (빈 값을 그대로 넘기면 파싱 예외 → 공개 API 호출까지 401로 막힌다)
-        if (request.getCookies() != null) {
-            for (Cookie cookie : request.getCookies()) {
-                if (GlobalJwtProvider.ACCESS_TOKEN_COOKIE.equals(cookie.getName())
-                        && StringUtils.hasText(cookie.getValue())) {
-                    return cookie.getValue();
-                }
-            }
-        }
-
         return null;
     }
 }
