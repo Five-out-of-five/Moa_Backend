@@ -335,7 +335,12 @@ public class RoomService implements RoomUseCase {
         if (accountId.equals(command.targetAccountId())) {
             throw new BusinessException(RoomErrorCode.MEMBER_DELEGATE_TARGET_INVALID);
         }
-        RoomMember target = activeMember(roomId, command.targetAccountId());
+        // 방에 한 번도 없던 계정은 MEMBER_NOT_FOUND, 나가거나 내보내진 멤버는 명세대로 MEMBER_DELEGATE_TARGET_INVALID.
+        RoomMember target = roomMemberRepository.findByRoomIdAndAccountId(roomId, command.targetAccountId())
+                .orElseThrow(() -> new BusinessException(RoomErrorCode.MEMBER_NOT_FOUND));
+        if (target.getStatus() != RoomMemberStatus.ACTIVE) {
+            throw new BusinessException(RoomErrorCode.MEMBER_DELEGATE_TARGET_INVALID);
+        }
         // 방장 1명 유니크 인덱스 때문에 내리는 쪽을 먼저 반영한다.
         roomMemberRepository.saveAndFlush(owner.toBuilder().role(RoomMemberRole.MEMBER).build());
         roomMemberRepository.save(target.toBuilder().role(RoomMemberRole.OWNER).build());
