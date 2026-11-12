@@ -21,6 +21,10 @@ import org.springframework.stereotype.Component;
 @Component
 public class GlobalJwtProvider {
 
+    /**
+     * 프론트(Next)가 심는 액세스 토큰 쿠키 이름. 서버는 이 쿠키를 만들지 않고, REST 인증에도 쓰지 않는다.
+     * WebSocket(/ws) 핸드셰이크에서 쿠키 인증을 할 때만 이 이름으로 읽는다.
+     */
     public static final String ACCESS_TOKEN_COOKIE = "accessToken";
     public static final String REFRESH_TOKEN_COOKIE = "refreshToken";
 
@@ -111,28 +115,9 @@ public class GlobalJwtProvider {
     }
 
     // ==========================================
-    // 2. 쿠키 생성 / 삭제
+    // 2. 리프레시 토큰 쿠키 생성 / 삭제
+    //    액세스 토큰은 응답 본문으로만 내려준다(쿠키 X).
     // ==========================================
-    public ResponseCookie createCookie(String name, String token) {
-        // 쿠키 만료 시간을 실제 토큰 종류의 만료 시간과 맞춘다.
-        long maxAgeSeconds = REFRESH_TOKEN_COOKIE.equals(name)
-                ? refreshTokenExpiration / 1000
-                : accessTokenExpiration / 1000;
-
-        ResponseCookie.ResponseCookieBuilder builder = ResponseCookie.from(name, token)
-                .httpOnly(true)
-                .secure(cookieSecure)
-                .path("/")
-                .sameSite(cookieSecure ? "None" : "Lax") // 크로스 도메인 전송은 Secure + None 조합에서만 허용된다.
-                .maxAge(maxAgeSeconds);
-
-        if (!cookieDomain.isBlank()) {
-            builder.domain(cookieDomain);
-        }
-
-        return builder.build();
-    }
-
     /** 리프레시 토큰 쿠키. /auth/refresh·/auth/logout 의 CSRF 방어를 위해 SameSite=Strict 로 고정한다. */
     public ResponseCookie createRefreshCookie(String token) {
         return refreshCookieBuilder(token).maxAge(refreshTokenExpiration / 1000).build();
@@ -160,22 +145,6 @@ public class GlobalJwtProvider {
 
     public Duration signupTicketTtl() {
         return Duration.ofMinutes(10);
-    }
-
-    public ResponseCookie deleteCookie(String name) {
-        ResponseCookie.ResponseCookieBuilder builder = ResponseCookie.from(name, "")
-                .httpOnly(true)
-                .secure(cookieSecure)
-                .path("/")
-                .sameSite(cookieSecure ? "None" : "Lax")
-                .maxAge(0); // 수명을 0으로 주어 즉시 삭제 유도
-
-        // 생성 시 사용한 domain 설정과 일치해야 삭제된다.
-        if (!cookieDomain.isBlank()) {
-            builder.domain(cookieDomain);
-        }
-
-        return builder.build();
     }
 
     // ==========================================
