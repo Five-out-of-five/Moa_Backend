@@ -34,4 +34,7 @@ public interface RoomRepository {
     long countByCreatedAtGreaterThanEqualAndCreatedAtLessThan(LocalDateTime from, LocalDateTime to);
 
     Page<Room> search(@Param("keyword") String keyword, @Param("status") RoomStatus status, @Param("inactiveBefore") LocalDateTime inactiveBefore, Pageable pageable);
+
+    /** search 와 같은 조건, 신고 수 많은 순. pageable 의 정렬은 쓰지 않는다. */
+    Page<Room> searchOrderByReportCount(String keyword, RoomStatus status, LocalDateTime inactiveBefore, Pageable pageable);
 }
