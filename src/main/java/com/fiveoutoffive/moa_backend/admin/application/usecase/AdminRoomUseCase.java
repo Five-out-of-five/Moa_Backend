@@ -9,7 +9,8 @@ import org.springframework.data.domain.Pageable;
 
 public interface AdminRoomUseCase {
 
-    PageResponse<AdminRoomResponse> getRooms(String keyword, RoomStatus status, Integer inactiveDays, Pageable pageable);
+    /** orderByReportCount 가 true 면 신고 수 많은 순, 아니면 pageable 의 정렬을 쓴다. */
+    PageResponse<AdminRoomResponse> getRooms(String keyword, RoomStatus status, Integer inactiveDays, boolean orderByReportCount, Pageable pageable);
 
     AdminRoomDetailResponse getRoom(Long roomId);
 

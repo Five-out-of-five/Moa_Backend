@@ -34,8 +34,12 @@ public class AdminRoomController {
     @GetMapping
     @Operation(summary = "[관리자] 방 목록")
     public ApiResponse<PageResponse<AdminRoomResponse>> list(@RequestParam(required = false) String keyword, @RequestParam(required = false) RoomStatus status, @RequestParam(required = false) Integer inactiveDays, @RequestParam(defaultValue = "CREATED") String sort, @RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "20") int size) {
+        // sort = LAST_ACTIVITY / CREATED / REPORT_COUNT (API 명세). REPORT_COUNT 는 쿼리에서 정렬하므로 pageable 에 정렬을 넣지 않는다.
+        if ("REPORT_COUNT".equals(sort)) {
+            return ApiResponse.success(useCase.getRooms(keyword, status, inactiveDays, true, Pages.of(page, size)));
+        }
         Sort order = Sort.by(Sort.Direction.DESC, "LAST_ACTIVITY".equals(sort) ? "lastActivityAt" : "createdAt");
-        return ApiResponse.success(useCase.getRooms(keyword, status, inactiveDays, Pages.of(page, size, order)));
+        return ApiResponse.success(useCase.getRooms(keyword, status, inactiveDays, false, Pages.of(page, size, order)));
     }
 
     @GetMapping("/{roomId}")

@@ -77,4 +77,9 @@ public class RoomRepositoryAdapter implements RoomRepository {
     public Page<Room> search(@Param("keyword") String keyword, @Param("status") RoomStatus status, @Param("inactiveBefore") LocalDateTime inactiveBefore, Pageable pageable) {
         return springDataRepository.search(keyword, status, inactiveBefore, pageable).map(roomMapper::toDomain);
     }
+
+    @Override
+    public Page<Room> searchOrderByReportCount(String keyword, RoomStatus status, LocalDateTime inactiveBefore, Pageable pageable) {
+        return springDataRepository.searchOrderByReportCount(keyword, status, inactiveBefore, pageable).map(roomMapper::toDomain);
+    }
 }

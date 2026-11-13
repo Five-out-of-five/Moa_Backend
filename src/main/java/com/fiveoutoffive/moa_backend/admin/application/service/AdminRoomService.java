@@ -46,9 +46,12 @@ public class AdminRoomService implements AdminRoomUseCase {
 
     @Transactional(readOnly = true)
     @Override
-    public PageResponse<AdminRoomResponse> getRooms(String keyword, RoomStatus status, Integer inactiveDays, Pageable pageable) {
+    public PageResponse<AdminRoomResponse> getRooms(String keyword, RoomStatus status, Integer inactiveDays, boolean orderByReportCount, Pageable pageable) {
         LocalDateTime before = inactiveDays == null ? null : KstTime.nowUtc().minusDays(inactiveDays);
-        return Pages.response(roomRepository.search(keyword, status, before, pageable).map(this::toResponse));
+        var rooms = orderByReportCount
+                ? roomRepository.searchOrderByReportCount(keyword, status, before, pageable)
+                : roomRepository.search(keyword, status, before, pageable);
+        return Pages.response(rooms.map(this::toResponse));
     }
 
     @Transactional(readOnly = true)

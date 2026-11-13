@@ -9,6 +9,7 @@ import jakarta.annotation.PostConstruct;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Date;
+import java.util.UUID;
 import javax.crypto.SecretKey;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseCookie;
@@ -106,7 +107,10 @@ public class GlobalJwtProvider {
     }
 
     public String createRefreshToken(String subject) {
+        // 재발급 때마다 반드시 다른 값이 되도록 고유 ID(jti)를 넣는다.
+        // iat 은 초 단위라, 없으면 같은 초에 두 번 발급한 토큰이 완전히 같아져 교체(Rotation)가 일어나지 않는다.
         return Jwts.builder()
+                .id(UUID.randomUUID().toString())
                 .subject(subject)
                 .issuedAt(new Date())
                 .expiration(new Date(System.currentTimeMillis() + refreshTokenExpiration))
