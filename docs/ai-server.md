@@ -1,6 +1,11 @@
 # Python AI 서버 연동
 
 Spring 은 AI 로직을 갖지 않고 Python 서버를 호출한다. 주소는 `AI_SERVER_URL`(기본 `http://localhost:8000`).
+Python 저장소는 `Five-out-of-five/Moa_Python` 이다.
+
+`AI_INTERNAL_API_KEY` 를 설정하면 모든 호출에 `X-Internal-Api-Key` 헤더로 보낸다. Python 의 `INTERNAL_API_KEY` 와
+같은 값이어야 하고, 다르면 Python 이 401 을 준다(Spring 에서는 호출 실패로 처리). 로컬은 둘 다 비워 두면 검사하지 않는다.
+운영 Python 은 키가 없으면 기동하지 않는다. `/health` 는 키 없이 열려 있다.
 
 ## 연결과 장애 처리
 

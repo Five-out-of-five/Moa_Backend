@@ -24,6 +24,8 @@ import org.springframework.web.client.RestClient;
 public class AiServerConnection {
 
     private static final String HEALTH_PATH = "/health";
+    /** Python 서버가 내부 호출인지 확인하는 헤더. 값이 비어 있으면 보내지 않는다(로컬). */
+    private static final String INTERNAL_KEY_HEADER = "X-Internal-Api-Key";
 
     private final RestClient restClient;
     private final String serverUrl;
@@ -32,7 +34,8 @@ public class AiServerConnection {
     public AiServerConnection(
             @Value("${app.ai.server-url}") String serverUrl,
             @Value("${app.ai.connect-timeout}") Duration connectTimeout,
-            @Value("${app.ai.read-timeout}") Duration readTimeout
+            @Value("${app.ai.read-timeout}") Duration readTimeout,
+            @Value("${app.ai.internal-key:}") String internalKey
     ) {
         this.serverUrl = serverUrl;
         HttpClient httpClient = HttpClient.newBuilder()
@@ -41,7 +44,11 @@ public class AiServerConnection {
                 .build();
         JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory(httpClient);
         requestFactory.setReadTimeout(readTimeout);
-        this.restClient = RestClient.builder().baseUrl(serverUrl).requestFactory(requestFactory).build();
+        RestClient.Builder builder = RestClient.builder().baseUrl(serverUrl).requestFactory(requestFactory);
+        if (internalKey != null && !internalKey.isBlank()) {
+            builder.defaultHeader(INTERNAL_KEY_HEADER, internalKey);
+        }
+        this.restClient = builder.build();
     }
 
     public RestClient client() {

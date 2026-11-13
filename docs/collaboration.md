@@ -46,6 +46,7 @@
 | `CardChangedEvent` | ideacard | mediation(임베딩·충돌 감지) |
 | `CardDeletedEvent` | ideacard, admin | mediation |
 | `SessionClosedEvent` | session | mediation, integration(노션·슬랙) |
+| `MediationWidgetAddedEvent` | dashboard | mediation(진행 중 회차 기존 카드 충돌 분석) |
 | `VoteLifecycleEvent` | vote | integration(슬랙) |
 | `TaskDueSoonEvent` | task | integration(슬랙) |
 

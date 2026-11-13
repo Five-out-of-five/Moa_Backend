@@ -128,6 +128,8 @@ app:
   ai:
     # Python AI 서버. 연결에 실패해도 서버는 정상 기동한다. (docs/ai-server.md)
     server-url: ${AI_SERVER_URL:http://localhost:8000}
+    # Python 서버의 INTERNAL_API_KEY 와 같은 값. X-Internal-Api-Key 헤더로 보낸다. 비우면 보내지 않는다(로컬).
+    internal-key: ${AI_INTERNAL_API_KEY:}
     connect-timeout: 2s
     read-timeout: 30s
     health-interval: 15s
