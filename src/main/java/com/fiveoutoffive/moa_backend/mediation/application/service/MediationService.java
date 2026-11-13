@@ -90,6 +90,10 @@ public class MediationService implements MediationUseCase {
         if (c.getAdoptedCardId() != null) {
             throw new BusinessException(MediationErrorCode.CONFLICT_ALREADY_ADOPTED);
         }
+        // 해제는 '충돌 아님(오탐)' 결정이고 같은 쌍은 다시 감지하지 않는다. 절충안으로 해제가 풀리지 않게 막는다.
+        if (c.getStatus() == ConflictStatus.DISMISSED) {
+            throw new BusinessException(MediationErrorCode.CONFLICT_ALREADY_DISMISSED);
+        }
         IdeaCard a = card(c.getCardAId());
         IdeaCard b = card(c.getCardBId());
         DraftCardType type = a.getCardType() == CardType.AGENDA || b.getCardType() == CardType.AGENDA ? DraftCardType.AGENDA : DraftCardType.TRY;

@@ -88,6 +88,18 @@ class MediationApiTest extends Be2ApiTestSupport {
     }
 
     @Test
+    @DisplayName("해제한 충돌에는 절충안을 만들 수 없고 상태도 그대로다")
+    void compromiseOnDismissed() throws Exception {
+        addMediationWidget();
+        Long conflictId = insertConflict();
+        post(member, conflicts + "/" + conflictId + "/dismiss").ok();
+
+        post(owner, conflicts + "/" + conflictId + "/compromise-drafts").fails(409, "CONFLICT_ALREADY_DISMISSED");
+
+        assertThat(get(owner, conflicts + "/" + conflictId).ok().<String>read("$.data.status")).isEqualTo("DISMISSED");
+    }
+
+    @Test
     @DisplayName("없는 충돌은 CONFLICT_NOT_FOUND")
     void notFound() throws Exception {
         addMediationWidget();

@@ -4,7 +4,6 @@ import com.fiveoutoffive.moa_backend.ai.application.result.AiEmbeddingPayload;
 import com.fiveoutoffive.moa_backend.ai.application.service.AiGateway;
 import com.fiveoutoffive.moa_backend.ai.domain.model.AiFeature;
 import com.fiveoutoffive.moa_backend.ai.domain.repository.ContentEmbeddingRepository;
-import com.fiveoutoffive.moa_backend.dashboard.domain.event.MediationWidgetAddedEvent;
 import com.fiveoutoffive.moa_backend.dashboard.domain.model.WidgetType;
 import com.fiveoutoffive.moa_backend.dashboard.domain.repository.RoomWidgetRepository;
 import com.fiveoutoffive.moa_backend.global.util.KstTime;
@@ -18,9 +17,6 @@ import com.fiveoutoffive.moa_backend.mediation.domain.model.CardConflict;
 import com.fiveoutoffive.moa_backend.mediation.domain.model.ConflictStatus;
 import com.fiveoutoffive.moa_backend.mediation.domain.repository.CardConflictRepository;
 import com.fiveoutoffive.moa_backend.session.domain.event.SessionClosedEvent;
-import com.fiveoutoffive.moa_backend.session.domain.model.BoardSession;
-import com.fiveoutoffive.moa_backend.session.domain.model.SessionStatus;
-import com.fiveoutoffive.moa_backend.session.domain.repository.BoardSessionRepository;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.HexFormat;
@@ -48,7 +44,6 @@ public class ConflictDetectionHandlers {
     private final ContentEmbeddingRepository embeddingRepository;
     private final RoomWidgetRepository widgetRepository;
     private final IdeaCardRepository cardRepository;
-    private final BoardSessionRepository sessionRepository;
     private final AiGateway aiGateway;
     private final RealtimePublisher realtime;
 
@@ -82,30 +77,6 @@ public class ConflictDetectionHandlers {
             }
         } catch (Exception e) {
             log.warn("[AI] 회차 충돌 분석 실패 sessionId={}: {}", event.sessionId(), e.getMessage());
-        }
-    }
-
-    /**
-     * 중재 위젯을 새로 추가하면 진행 중 회차의 기존 카드를 분석한다. 위젯을 넣기 전에 올라온 카드끼리의 충돌이
-     * 회차 마감(회의가 끝난 뒤)까지 안 보이는 것을 막는다. 마감된 회차의 카드는 다시 분석하지 않는다.
-     */
-    @Async
-    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.REQUIRES_NEW)
-    @org.springframework.transaction.event.TransactionalEventListener
-    public void onMediationWidgetAdded(MediationWidgetAddedEvent event) {
-        try {
-            BoardSession session = sessionRepository.findFirstByRoomIdAndStatus(event.roomId(), SessionStatus.IN_PROGRESS).orElse(null);
-            if (session == null) {
-                return;
-            }
-            List<IdeaCard> cards = cardRepository.findBySessionIdAndDeletedAtIsNullOrderBySortOrderAsc(session.getId());
-            // AI 서버가 꺼져 있던 동안 만든 카드는 임베딩이 없을 수 있다. 내용이 같으면 다시 부르지 않는다.
-            for (IdeaCard card : cards) {
-                refreshEmbedding(event.roomId(), card.getId());
-            }
-            cards.forEach(this::detect);
-        } catch (Exception e) {
-            log.warn("[AI] 중재 위젯 추가 후 충돌 분석 실패 roomId={}: {}", event.roomId(), e.getMessage());
         }
     }
 

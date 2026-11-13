@@ -6,7 +6,6 @@ import com.fiveoutoffive.moa_backend.dashboard.application.command.WidgetPlaceme
 import com.fiveoutoffive.moa_backend.dashboard.application.result.DashboardResponse;
 import com.fiveoutoffive.moa_backend.dashboard.application.result.LayoutRecommendResponse;
 import com.fiveoutoffive.moa_backend.dashboard.application.usecase.DashboardUseCase;
-import com.fiveoutoffive.moa_backend.dashboard.domain.event.MediationWidgetAddedEvent;
 import com.fiveoutoffive.moa_backend.dashboard.domain.model.RoomLayoutSnapshot;
 import com.fiveoutoffive.moa_backend.dashboard.domain.model.RoomWidget;
 import com.fiveoutoffive.moa_backend.dashboard.domain.model.WidgetType;
@@ -27,7 +26,6 @@ import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -54,7 +52,6 @@ public class DashboardService implements DashboardUseCase {
     private final RealtimePublisher realtime;
     private final AiGateway aiGateway;
     private final tools.jackson.databind.json.JsonMapper jsonMapper;
-    private final ApplicationEventPublisher eventPublisher;
 
     @Transactional(readOnly = true)
     @Override
@@ -76,8 +73,6 @@ public class DashboardService implements DashboardUseCase {
         all.add(placement);
         validate(all);
         save(roomId, accountId, placement);
-        // 위 중복 검사를 통과했으므로 이 방에는 같은 종류가 없었다.
-        notifyIfMediationAdded(roomId, false, List.of(placement));
         return changed(roomId, accountId);
     }
 
@@ -134,12 +129,10 @@ public class DashboardService implements DashboardUseCase {
     public DashboardResponse applyRecommendation(Long accountId, Long roomId, List<WidgetPlacement> placements) {
         access.requireMember(roomId, accountId);
         validate(placements);
-        boolean hadMediation = hasMediation(roomId);
         String snapshot = jsonMapper.writeValueAsString(currentPlacements(roomId));
         snapshotRepository.deleteByRoomId(roomId);
         snapshotRepository.flush();
         replaceAll(roomId, accountId, placements);
-        notifyIfMediationAdded(roomId, hadMediation, placements);
         DashboardResponse response = changed(roomId, accountId);
         snapshotRepository.save(RoomLayoutSnapshot.builder().roomId(roomId).layoutJson(snapshot).createdByAccountId(accountId).build());
         return response;
@@ -150,21 +143,8 @@ public class DashboardService implements DashboardUseCase {
         access.requireMember(roomId, accountId);
         RoomLayoutSnapshot snapshot = snapshotRepository.findByRoomId(roomId).orElseThrow(() -> new BusinessException(DashboardErrorCode.DASHBOARD_UNDO_NOT_AVAILABLE));
         WidgetPlacement[] placements = jsonMapper.readValue(snapshot.getLayoutJson(), WidgetPlacement[].class);
-        boolean hadMediation = hasMediation(roomId);
         replaceAll(roomId, accountId, List.of(placements));
-        notifyIfMediationAdded(roomId, hadMediation, List.of(placements));
         return changed(roomId, accountId);
-    }
-
-    private boolean hasMediation(Long roomId) {
-        return widgetRepository.existsByRoomIdAndWidgetType(roomId, WidgetType.MEDIATION);
-    }
-
-    /** 중재 위젯이 없던 방에 생기면 알린다. 위젯을 넣기 전에 올라온 진행 중 회차 카드도 충돌 분석하기 위함이다. */
-    private void notifyIfMediationAdded(Long roomId, boolean hadMediation, List<WidgetPlacement> placements) {
-        if (!hadMediation && placements.stream().anyMatch(p -> p.widgetType() == WidgetType.MEDIATION)) {
-            eventPublisher.publishEvent(new MediationWidgetAddedEvent(roomId));
-        }
     }
 
     @EventListener
