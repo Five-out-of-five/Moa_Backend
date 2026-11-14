@@ -4,6 +4,7 @@ import com.fiveoutoffive.moa_backend.global.security.GlobalJwtProvider;
 import io.jsonwebtoken.Claims;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
@@ -22,9 +23,14 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
 /**
- * STOMP CONNECT 프레임의 Authorization 헤더로 인증한다. (API 명세 '[STOMP] 웹소켓 연결')
+ * STOMP CONNECT 를 인증한다. (API 명세 '[STOMP] 웹소켓 연결', 11/12 회의 D안)
  *
- * <p>프론트: {@code client.connectHeaders = { Authorization: `Bearer ${accessToken}` }}
+ * <p>토큰은 두 곳에서 찾는다. 헤더가 있으면 헤더만 쓰고, 헤더가 틀려도 쿠키로 넘어가지 않는다.
+ * <ol>
+ *   <li>CONNECT 프레임의 {@code Authorization: Bearer} 헤더 — {@code client.connectHeaders = { Authorization: `Bearer ${token}` }}</li>
+ *   <li>헤더가 없으면 핸드셰이크에 실린 accessToken 쿠키 ({@link JwtHandshakeInterceptor} 가 세션 속성에 넣어 둔 값).
+ *       프론트 BFF 구조에서 토큰이 httpOnly 쿠키에만 있을 때 쓰인다.</li>
+ * </ol>
  *
  * <p>검증 결과는 세션 속성(principal, role, userId)과 STOMP 사용자로 저장해 이후 프레임에서 재사용한다.
  * 연결 중에 토큰이 만료돼도 이미 맺은 연결은 유지되며, 재연결할 때 새 토큰을 보내면 된다.
@@ -38,6 +44,12 @@ import org.springframework.util.StringUtils;
 public class StompAuthChannelInterceptor implements ChannelInterceptor {
 
     private static final String BEARER_PREFIX = "Bearer ";
+
+    /** 클라이언트가 보낼 수 있는 경로. /topic·/user 로 직접 보내면 브로커가 그대로 퍼뜨려 이벤트·알림을 위조할 수 있다. */
+    private static final String SEND_PREFIX = "/app/";
+    private static final String TOPIC_PREFIX = "/topic/";
+    /** 구독할 수 있는 개인 큐. /user/{다른 사용자}/... 같은 경로는 받지 않는다. */
+    private static final Set<String> USER_QUEUES = Set.of("/user/queue/notifications", "/user/queue/channels");
 
     private final GlobalJwtProvider globalJwtProvider;
     private final ObjectProvider<WebSocketUserPort> webSocketUserPortProvider;
@@ -59,15 +71,15 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
         if (command == StompCommand.CONNECT) {
             authenticate(accessor);
         } else if (command == StompCommand.SUBSCRIBE || command == StompCommand.SEND) {
-            authorize(accessor);
+            authorize(accessor, command);
         }
         return message;
     }
 
     private void authenticate(StompHeaderAccessor accessor) {
-        String token = resolveBearerToken(accessor);
+        String token = resolveToken(accessor);
         if (token == null) {
-            throw reject("Authorization 헤더 없음");
+            throw reject("Authorization 헤더와 accessToken 쿠키 모두 없음");
         }
 
         Claims claims;
@@ -110,17 +122,39 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
         accessor.setUser(new UsernamePasswordAuthenticationToken(principal, null, authorities));
     }
 
-    private void authorize(StompHeaderAccessor accessor) {
+    private void authorize(StompHeaderAccessor accessor, StompCommand command) {
+        String destination = accessor.getDestination();
+        if (destination == null || !allowedForCommand(command, destination)) {
+            throw new MessageDeliveryException("허용되지 않은 경로입니다: " + command + " " + destination);
+        }
         StompDestinationAuthorizer authorizer = destinationAuthorizerProvider.getIfAvailable();
         Map<String, Object> attributes = accessor.getSessionAttributes();
-        String destination = accessor.getDestination();
-        if (authorizer == null || attributes == null || destination == null) {
+        if (authorizer == null || attributes == null) {
             return;
         }
         Long userId = (Long) attributes.get(WebSocketSessionAttributes.USER_ID);
         if (userId == null || !authorizer.canAccess(userId, destination)) {
             throw new MessageDeliveryException("접근 권한이 없는 경로입니다: " + destination);
         }
+    }
+
+    /** SEND 는 /app/** 만, SUBSCRIBE 는 /topic/** 와 본인 개인 큐만 허용한다. 방·채널 권한은 이어서 authorizer 가 본다. */
+    private boolean allowedForCommand(StompCommand command, String destination) {
+        if (command == StompCommand.SEND) {
+            return destination.startsWith(SEND_PREFIX);
+        }
+        return destination.startsWith(TOPIC_PREFIX) || USER_QUEUES.contains(destination);
+    }
+
+    /** 헤더 우선, 없으면 핸드셰이크 쿠키. */
+    private String resolveToken(StompHeaderAccessor accessor) {
+        String header = resolveBearerToken(accessor);
+        if (header != null) {
+            return header;
+        }
+        Map<String, Object> attributes = accessor.getSessionAttributes();
+        Object cookie = attributes == null ? null : attributes.get(WebSocketSessionAttributes.HANDSHAKE_ACCESS_TOKEN);
+        return cookie instanceof String value && StringUtils.hasText(value) ? value : null;
     }
 
     private String resolveBearerToken(StompHeaderAccessor accessor) {
