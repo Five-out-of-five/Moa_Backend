@@ -162,6 +162,43 @@ class StompCookieAuthApiTest extends Be2ApiTestSupport {
         victimSession.disconnect();
     }
 
+    @Test
+    void 채널에서_내보내지면_연결은_유지되고_그_채널_메시지만_끊긴다() throws Exception {
+        Member owner = newMember("채널방장");
+        Member member = newMember("내보낼멤버");
+        Long roomId = newRoom(owner, member);
+        String channels = "/rooms/" + roomId + "/channels";
+        Long channelId = post(owner, channels, "{\"name\":\"비공개\",\"channelType\":\"PRIVATE\",\"memberAccountIds\":[" + member.id() + "]}")
+                .ok().id("$.data.channelId");
+        post(member, channels + "/" + channelId + "/accept-invitation").ok();
+        StompSession session = connect(cookieHeaders(member.token(), ALLOWED_ORIGIN), new StompHeaders());
+        java.util.concurrent.BlockingQueue<Object> channelMessages = new java.util.concurrent.LinkedBlockingQueue<>();
+        CompletableFuture<Object> kicked = new CompletableFuture<>();
+        session.subscribe("/topic/channels/" + channelId, new StompFrameHandler() {
+            @Override
+            public Type getPayloadType(StompHeaders headers) {
+                return Map.class;
+            }
+
+            @Override
+            public void handleFrame(StompHeaders headers, Object payload) {
+                channelMessages.add(payload);
+            }
+        });
+        session.subscribe("/user/queue/channels", collect(kicked));
+        TimeUnit.MILLISECONDS.sleep(300);
+
+        delete(owner, channels + "/" + channelId + "/members/" + member.id()).ok();
+
+        Map<?, ?> event = (Map<?, ?>) kicked.get(5, TimeUnit.SECONDS);
+        assertThat(event.get("type")).isEqualTo("KICKED");
+        TimeUnit.MILLISECONDS.sleep(300);
+        post(owner, channels + "/" + channelId + "/messages", "{\"content\":\"내보낸 뒤\",\"clientMessageId\":\"" + java.util.UUID.randomUUID() + "\"}").ok();
+        assertThat(channelMessages.poll(2, TimeUnit.SECONDS)).isNull();
+        assertThat(session.isConnected()).isTrue();
+        session.disconnect();
+    }
+
     private StompFrameHandler collect(CompletableFuture<Object> received) {
         return new StompFrameHandler() {
             @Override

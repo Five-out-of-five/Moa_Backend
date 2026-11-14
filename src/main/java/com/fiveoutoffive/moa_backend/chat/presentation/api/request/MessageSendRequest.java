@@ -7,7 +7,7 @@ import java.util.List;
 
 public record MessageSendRequest(
         @Size(max=2000) String content,
-        @Size(max=5) List<Long> fileIds,
+        List<Long> fileIds,
         @NotBlank String clientMessageId
 ) {
 

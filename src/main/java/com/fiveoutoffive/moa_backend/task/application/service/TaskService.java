@@ -66,7 +66,9 @@ import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Pageable;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -128,7 +130,7 @@ public class TaskService implements TaskUseCase {
         fileAttachSupport.requireAttachable(roomId, accountId, fileIds, FileGroup.TASK_ATTACHMENT, 0);
         Long sprintId = sprintRepository.findFirstByRoomIdAndStatus(roomId, SprintStatus.IN_PROGRESS).map(Sprint::getId).orElse(null);
         TaskSourceType sourceType = sourceCard != null ? TaskSourceType.CARD : command.sourceVoteId() != null ? TaskSourceType.VOTE : TaskSourceType.NONE;
-        Task task = taskRepository.save(Task.builder().roomId(roomId).sprintId(sprintId).title(command.title()).description(command.description()).status(TaskStatus.TODO)
+        Task task = saveNew(sourceCard != null, Task.builder().roomId(roomId).sprintId(sprintId).title(command.title()).description(command.description()).status(TaskStatus.TODO)
                 .priority(command.priority() != null ? command.priority() : TaskPriority.NORMAL).registrantAccountId(accountId).assigneeAccountId(command.assigneeAccountId()).dueDate(command.dueDate())
                 .sortOrder(taskRepository.findMaxSortOrder(roomId, TaskStatus.TODO) + 1).sourceType(sourceType).sourceCardId(command.sourceCardId()).sourceVoteId(command.sourceVoteId()).build());
         for (int i = 0; i < fileIds.size(); i++) {
@@ -159,7 +161,7 @@ public class TaskService implements TaskUseCase {
         requireEditor(roomId, task, accountId);
         requireFutureDue(command.dueDate());
         boolean dueChanged = command.dueDate() != null && !command.dueDate().equals(task.getDueDate());
-        Task saved = taskRepository.save(task.toBuilder()
+        Task saved = saveExisting(task.toBuilder()
                 .title(command.title() != null ? command.title() : task.getTitle())
                 .description(command.description() != null ? command.description() : task.getDescription())
                 .dueDate(command.dueDate() != null ? command.dueDate() : task.getDueDate())
@@ -182,11 +184,11 @@ public class TaskService implements TaskUseCase {
         Task updated = task.toBuilder().status(to).completedAt(to == TaskStatus.DONE ? (from == TaskStatus.DONE ? task.getCompletedAt() : KstTime.nowUtc()) : null).build();
         List<Task> changed = new ArrayList<>();
         if (from != to) {
-            List<Task> source = new ArrayList<>(taskRepository.findByRoomIdAndStatusAndDeletedAtIsNullOrderBySortOrderAsc(roomId, from));
+            List<Task> source = new ArrayList<>(column(roomId, from, task.getSprintId()));
             source.removeIf(t -> t.getId().equals(taskId));
             changed.addAll(reorder(source, taskId));
         }
-        List<Task> target = new ArrayList<>(taskRepository.findByRoomIdAndStatusAndDeletedAtIsNullOrderBySortOrderAsc(roomId, to));
+        List<Task> target = new ArrayList<>(column(roomId, to, task.getSprintId()));
         target.removeIf(t -> t.getId().equals(taskId));
         target.add(Math.min(command.toIndex(), target.size()), updated);
         changed.addAll(reorder(target, taskId));
@@ -213,7 +215,9 @@ public class TaskService implements TaskUseCase {
                 throw new BusinessException(TaskErrorCode.SPRINT_NOT_IN_PROGRESS);
             }
         }
-        return broadcast(roomId, accountId, taskRepository.save(task.toBuilder().sprintId(command.sprintId()).build()), "TASK_UPDATED");
+        int last = column(roomId, task.getStatus(), command.sprintId()).stream().filter(t -> !t.getId().equals(taskId))
+                .mapToInt(Task::getSortOrder).max().orElse(-1);
+        return broadcast(roomId, accountId, saveExisting(task.toBuilder().sprintId(command.sprintId()).sortOrder(last + 1).build()), "TASK_UPDATED");
     }
 
     @Override
@@ -226,7 +230,7 @@ public class TaskService implements TaskUseCase {
         if (!access.isActiveMember(roomId, command.assigneeAccountId())) {
             throw new BusinessException(TaskErrorCode.TASK_ASSIGNEE_NOT_MEMBER);
         }
-        Task saved = taskRepository.save(task.toBuilder().assigneeAccountId(command.assigneeAccountId()).build());
+        Task saved = saveExisting(task.toBuilder().assigneeAccountId(command.assigneeAccountId()).build());
         history(taskId, TaskHistoryType.ASSIGNED, null, null, task.getAssigneeAccountId(), command.assigneeAccountId(), accountId);
         eventRecorder.record(roomId, BoardEventType.TASK_ASSIGNED, accountId, command.assigneeAccountId(), BoardEventTargetType.TASK, taskId, task.getTitle());
         notificationSender.send(roomId, accountId, NotificationType.TASK_ASSIGNED, List.of(command.assigneeAccountId()), "업무가 배정되었습니다", task.getTitle(), "TASK", taskId);
@@ -243,7 +247,7 @@ public class TaskService implements TaskUseCase {
         if (accountId.equals(task.getRegistrantAccountId())) {
             throw new BusinessException(TaskErrorCode.TASK_CANNOT_REJECT_OWN);
         }
-        Task saved = taskRepository.save(task.toBuilder().assigneeAccountId(task.getRegistrantAccountId()).build());
+        Task saved = saveExisting(task.toBuilder().assigneeAccountId(task.getRegistrantAccountId()).build());
         history(taskId, TaskHistoryType.REJECTED, null, null, accountId, task.getRegistrantAccountId(), accountId);
         eventRecorder.record(roomId, BoardEventType.TASK_REJECTED, accountId, task.getRegistrantAccountId(), BoardEventTargetType.TASK, taskId, task.getTitle());
         notificationSender.send(roomId, accountId, NotificationType.TASK_REJECTED, List.of(task.getRegistrantAccountId()), "담당 업무가 반려되었습니다", task.getTitle(), "TASK", taskId);
@@ -257,8 +261,14 @@ public class TaskService implements TaskUseCase {
         if (!accountId.equals(task.getRegistrantAccountId()) && !access.isOwner(roomId, accountId)) {
             throw new BusinessException(TaskErrorCode.TASK_NO_PERMISSION);
         }
-        taskRepository.save(task.toBuilder().deletedAt(KstTime.nowUtc()).build());
-        if (task.getAssigneeAccountId() != null) {
+        saveExisting(task.toBuilder().deletedAt(KstTime.nowUtc()).build());
+        // 요구사항 56: 카드(업무) 삭제 시 첨부도 함께 삭제
+        List<Long> fileIds = fileRepository.findByTaskIdOrderBySortOrderAsc(taskId).stream().map(TaskFile::getFileId).toList();
+        if (!fileIds.isEmpty()) {
+            fileAttachSupport.softDelete(fileIds);
+        }
+        // 요구사항 35: 등록자 본인이 담당자인 업무는 알림을 보내지 않는다. (삭제한 사람 본인은 NotificationSender 가 뺀다)
+        if (task.getAssigneeAccountId() != null && !task.getAssigneeAccountId().equals(task.getRegistrantAccountId())) {
             notificationSender.send(roomId, accountId, NotificationType.TASK_DELETED, List.of(task.getAssigneeAccountId()), "담당 업무가 삭제되었습니다", task.getTitle(), "TASK", taskId);
         }
         realtime.toRoom(roomId, "TASK_DELETED", Map.of("taskId", taskId), accountId);
@@ -344,7 +354,7 @@ public class TaskService implements TaskUseCase {
         if (command.endDate().isBefore(command.startDate())) {
             throw new BusinessException(TaskErrorCode.SPRINT_PERIOD_INVALID);
         }
-        Sprint saved = sprintRepository.save(Sprint.builder().roomId(roomId).sprintNo(sprintRepository.findMaxSprintNo(roomId) + 1).name(command.name()).startDate(command.startDate()).endDate(command.endDate()).status(SprintStatus.IN_PROGRESS).startedByAccountId(accountId).build());
+        Sprint saved = startNewSprint(Sprint.builder().roomId(roomId).sprintNo(sprintRepository.findMaxSprintNo(roomId) + 1).name(command.name()).startDate(command.startDate()).endDate(command.endDate()).status(SprintStatus.IN_PROGRESS).startedByAccountId(accountId).build());
         SprintResponse response = toResponse(saved);
         realtime.toRoom(roomId, "SPRINT_STARTED", response, accountId);
         return response;
@@ -381,6 +391,42 @@ public class TaskService implements TaskUseCase {
     public SprintResponse closeSprint(Long accountId, Long roomId, Long sprintId) {
         access.requireMember(roomId, accountId);
         return toResponse(sprintCloser.close(openSprint(roomId, sprintId), accountId));
+    }
+
+    /** 같은 상태·같은 스프린트(null 이면 백로그)의 칸. 칸반 위치(toIndex)는 이 칸 안에서 센다. */
+    private List<Task> column(Long roomId, TaskStatus status, Long sprintId) {
+        return taskRepository.findByRoomIdAndStatusAndDeletedAtIsNullOrderBySortOrderAsc(roomId, status).stream()
+                .filter(t -> Objects.equals(t.getSprintId(), sprintId)).toList();
+    }
+
+    /** 이미 있는 업무 저장. 다른 요청이 먼저 바꿨으면(낙관적 락) 500 대신 명세 코드로 돌려준다. */
+    private Task saveExisting(Task task) {
+        try {
+            return taskRepository.save(task);
+        } catch (ObjectOptimisticLockingFailureException e) {
+            throw new BusinessException(TaskErrorCode.TASK_VERSION_CONFLICT);
+        }
+    }
+
+    /** 새 업무 저장. 같은 카드를 동시에 업무로 전환하면 유일 인덱스(uk_task_source_card)에 걸린다. */
+    private Task saveNew(boolean fromCard, Task task) {
+        try {
+            return taskRepository.save(task);
+        } catch (DataIntegrityViolationException e) {
+            if (fromCard) {
+                throw new BusinessException(IdeaCardErrorCode.CARD_ALREADY_CONVERTED);
+            }
+            throw e;
+        }
+    }
+
+    /** 동시에 스프린트를 시작하면 유일 인덱스(uk_sprint_in_progress, uk_sprint_no)에 걸린다. */
+    private Sprint startNewSprint(Sprint sprint) {
+        try {
+            return sprintRepository.save(sprint);
+        } catch (DataIntegrityViolationException e) {
+            throw new BusinessException(TaskErrorCode.SPRINT_ALREADY_IN_PROGRESS);
+        }
     }
 
     private Sprint openSprint(Long roomId, Long sprintId) {
@@ -441,7 +487,7 @@ public class TaskService implements TaskUseCase {
         for (int i = 0; i < tasks.size(); i++) {
             Task task = tasks.get(i);
             if (task.getId().equals(movedTaskId)) {
-                result.add(taskRepository.save(task.toBuilder().sortOrder(i).build()));
+                result.add(saveExisting(task.toBuilder().sortOrder(i).build()));
             } else {
                 if (task.getSortOrder() == null || task.getSortOrder() != i) {
                     taskRepository.updateSortOrder(task.getId(), i);

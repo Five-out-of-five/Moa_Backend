@@ -28,6 +28,11 @@ public class VoteRepositoryAdapter implements VoteRepository {
     }
 
     @Override
+    public void incrementVersion(Long voteId) {
+        springDataRepository.incrementVersion(voteId);
+    }
+
+    @Override
     public Optional<Vote> findById(Long id) {
         return springDataRepository.findById(id)
                 .map(voteMapper::toDomain);

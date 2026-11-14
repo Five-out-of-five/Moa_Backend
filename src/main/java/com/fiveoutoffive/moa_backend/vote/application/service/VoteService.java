@@ -42,8 +42,10 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -84,7 +86,7 @@ public class VoteService implements VoteUseCase {
         List<String> options = command.voteType() == VoteType.YES_NO ? List.of("찬성", "반대") : command.options();
         requireOptions(options);
         int maxSelect = command.voteType() == VoteType.MULTIPLE ? (command.maxSelectCount() == null ? options.size() : command.maxSelectCount()) : 1;
-        if (maxSelect > options.size()) {
+        if (maxSelect < 1 || maxSelect > options.size()) {
             throw new BusinessException(VoteErrorCode.VOTE_MAX_SELECT_INVALID);
         }
         if (command.sourceCardId() != null) {
@@ -96,7 +98,7 @@ public class VoteService implements VoteUseCase {
                 throw new BusinessException(IdeaCardErrorCode.CARD_VOTE_ALREADY_OPEN);
             }
         }
-        Vote vote = voteRepository.save(Vote.builder().roomId(roomId).sourceCardId(command.sourceCardId()).title(command.title()).voteType(command.voteType()).maxSelectCount(maxSelect).isAnonymous(command.anonymous()).status(VoteStatus.OPEN).deadlineAt(KstTime.toUtc(command.deadlineAt())).creatorAccountId(accountId).build());
+        Vote vote = saveNew(command.sourceCardId() != null, Vote.builder().roomId(roomId).sourceCardId(command.sourceCardId()).title(command.title()).voteType(command.voteType()).maxSelectCount(maxSelect).isAnonymous(command.anonymous()).status(VoteStatus.OPEN).deadlineAt(KstTime.toUtc(command.deadlineAt())).creatorAccountId(accountId).build());
         saveOptions(vote.getId(), options);
         return afterCreate(accountId, roomId, vote);
     }
@@ -124,27 +126,24 @@ public class VoteService implements VoteUseCase {
         if (deadline != null) {
             requireDeadline(deadline);
         }
+        requireValidUpdate(vote, command);
         Vote.VoteBuilder builder = vote.toBuilder();
         if (command.title() != null) {
             builder.title(command.title());
         }
         if (command.options() != null && vote.getVoteType() != VoteType.YES_NO) {
-            requireOptions(command.options());
             optionRepository.deleteByVoteId(voteId);
             optionRepository.flush();
             saveOptions(voteId, command.options());
         }
         if (command.maxSelectCount() != null) {
-            if (command.maxSelectCount() > optionRepository.findByVoteIdOrderBySortOrderAsc(voteId).size()) {
-                throw new BusinessException(VoteErrorCode.VOTE_MAX_SELECT_INVALID);
-            }
             builder.maxSelectCount(command.maxSelectCount());
         }
         boolean deadlineChanged = deadline != null && !deadline.equals(vote.getDeadlineAt());
         if (deadlineChanged) {
             builder.deadlineAt(deadline).reminderSentAt(null);
         }
-        Vote saved = voteRepository.save(builder.build());
+        Vote saved = saveExisting(builder.build());
         if (deadlineChanged) {
             notificationSender.send(roomId, accountId, NotificationType.VOTE_DEADLINE_CHANGED, access.activeMemberIds(roomId), "투표 마감 시각이 변경되었습니다", saved.getTitle(), "VOTE", voteId);
         }
@@ -159,7 +158,7 @@ public class VoteService implements VoteUseCase {
         Vote vote = openVote(roomId, voteId);
         requireManager(roomId, vote, accountId);
         List<Long> voters = ballotRepository.findByVoteId(voteId).stream().map(VoteBallot::getAccountId).distinct().toList();
-        voteRepository.save(vote.toBuilder().deletedAt(KstTime.nowUtc()).build());
+        saveExisting(vote.toBuilder().deletedAt(KstTime.nowUtc()).build());
         ballotRepository.deleteByVoteId(voteId);
         notificationSender.send(roomId, accountId, NotificationType.VOTE_DELETED, voters, "참여한 투표가 삭제되었습니다", vote.getTitle(), "VOTE", voteId);
         realtime.toRoom(roomId, "VOTE_DELETED", Map.of("voteId", voteId), accountId);
@@ -173,18 +172,20 @@ public class VoteService implements VoteUseCase {
             throw new BusinessException(VoteErrorCode.VOTE_CLOSED);
         }
         Set<Long> valid = optionRepository.findByVoteIdOrderBySortOrderAsc(voteId).stream().map(VoteOption::getId).collect(Collectors.toSet());
-        Set<Long> chosen = new HashSet<>(command.optionIds());
-        if (chosen.size() > vote.getMaxSelectCount() || !valid.containsAll(chosen)) {
+        Set<Long> chosen = command.optionIds() == null ? Set.of() : new HashSet<>(command.optionIds());
+        if (chosen.isEmpty() || chosen.size() > vote.getMaxSelectCount() || !valid.containsAll(chosen)) {
             throw new BusinessException(VoteErrorCode.VOTE_SELECTION_INVALID);
         }
         ballotRepository.deleteByVoteIdAndAccountId(voteId, accountId);
         ballotRepository.flush();
         chosen.forEach(optionId -> ballotRepository.save(VoteBallot.builder().voteId(voteId).optionId(optionId).accountId(accountId).votedAt(KstTime.nowUtc()).build()));
+        // 요구사항 40: 수정하는 도중 누가 참여하면 수정이 반영되지 않아야 하므로 참여도 version 을 올린다.
+        voteRepository.incrementVersion(voteId);
         Set<Long> voters = ballotRepository.findByVoteId(voteId).stream().map(VoteBallot::getAccountId).collect(Collectors.toSet());
         realtime.toRoom(roomId, "VOTE_PARTICIPATION_CHANGED", Map.of("voteId", voteId, "participantCount", voters.size()), accountId);
-        Vote current = vote;
+        Vote current = find(roomId, voteId);
         if (voters.containsAll(access.activeMemberIds(roomId))) {
-            current = closer.close(vote, VoteCloseReason.ALL_VOTED, null);
+            current = closer.close(current, VoteCloseReason.ALL_VOTED, null);
         }
         return detail(accountId, current);
     }
@@ -212,7 +213,10 @@ public class VoteService implements VoteUseCase {
         if (!isTied(options)) {
             throw new BusinessException(VoteErrorCode.VOTE_NOT_TIED);
         }
-        Vote created = voteRepository.save(Vote.builder().roomId(roomId).sourceCardId(vote.getSourceCardId()).parentVoteId(voteId).title(vote.getTitle()).voteType(vote.getVoteType()).maxSelectCount(1).isAnonymous(vote.getIsAnonymous()).status(VoteStatus.OPEN).deadlineAt(KstTime.toUtc(command.deadlineAt())).creatorAccountId(accountId).build());
+        if (vote.getSourceCardId() != null && voteRepository.findFirstBySourceCardIdAndStatusAndDeletedAtIsNull(vote.getSourceCardId(), VoteStatus.OPEN).isPresent()) {
+            throw new BusinessException(IdeaCardErrorCode.CARD_VOTE_ALREADY_OPEN);
+        }
+        Vote created = saveNew(vote.getSourceCardId() != null, Vote.builder().roomId(roomId).sourceCardId(vote.getSourceCardId()).parentVoteId(voteId).title(vote.getTitle()).voteType(vote.getVoteType()).maxSelectCount(1).isAnonymous(vote.getIsAnonymous()).status(VoteStatus.OPEN).deadlineAt(KstTime.toUtc(command.deadlineAt())).creatorAccountId(accountId).build());
         saveOptions(created.getId(), options.stream().filter(VoteDetailResponse.Option::top).map(VoteDetailResponse.Option::content).toList());
         return afterCreate(accountId, roomId, created);
     }
@@ -254,6 +258,47 @@ public class VoteService implements VoteUseCase {
     private void saveOptions(Long voteId, List<String> options) {
         for (int i = 0; i < options.size(); i++) {
             optionRepository.save(VoteOption.builder().voteId(voteId).content(options.get(i)).sortOrder(i).build());
+        }
+    }
+
+    /** 수정 후 상태가 생성 규칙을 지키는지 본다. (단일·찬반은 최대 1개, 복수는 1 ~ 선택지 수) */
+    private void requireValidUpdate(Vote vote, VoteUpdateCommand command) {
+        boolean replacesOptions = command.options() != null && vote.getVoteType() != VoteType.YES_NO;
+        if (replacesOptions) {
+            requireOptions(command.options());
+        }
+        Integer max = command.maxSelectCount();
+        if (vote.getVoteType() != VoteType.MULTIPLE) {
+            if (max != null && max != 1) {
+                throw new BusinessException(VoteErrorCode.VOTE_MAX_SELECT_INVALID);
+            }
+            return;
+        }
+        int optionCount = replacesOptions ? command.options().size() : optionRepository.findByVoteIdOrderBySortOrderAsc(vote.getId()).size();
+        int finalMax = max != null ? max : vote.getMaxSelectCount();
+        if (finalMax < 1 || finalMax > optionCount) {
+            throw new BusinessException(VoteErrorCode.VOTE_MAX_SELECT_INVALID);
+        }
+    }
+
+    /** 이미 있는 투표 저장. 다른 요청이 먼저 바꿨으면(낙관적 락) 500 대신 명세 코드로 돌려준다. */
+    private Vote saveExisting(Vote vote) {
+        try {
+            return voteRepository.save(vote);
+        } catch (ObjectOptimisticLockingFailureException e) {
+            throw new BusinessException(VoteErrorCode.VOTE_VERSION_CONFLICT);
+        }
+    }
+
+    /** 새 투표 저장. 같은 안건 카드에 동시에 투표를 만들면 유일 인덱스(uk_vote_open_card)에 걸린다. */
+    private Vote saveNew(boolean fromCard, Vote vote) {
+        try {
+            return voteRepository.save(vote);
+        } catch (DataIntegrityViolationException e) {
+            if (fromCard) {
+                throw new BusinessException(IdeaCardErrorCode.CARD_VOTE_ALREADY_OPEN);
+            }
+            throw e;
         }
     }
 

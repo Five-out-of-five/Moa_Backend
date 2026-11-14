@@ -14,6 +14,9 @@ public interface VoteRepository {
 
     Vote save(Vote vote);
 
+    /** version 만 1 올린다. 참여가 "수정 중 변경"으로 잡히도록 하되, 동시에 참여한 멤버끼리는 막지 않는다. */
+    void incrementVersion(Long voteId);
+
     Optional<Vote> findById(Long id);
 
     List<Vote> findBySourceCardIdInAndDeletedAtIsNull(Collection<Long> cardIds);

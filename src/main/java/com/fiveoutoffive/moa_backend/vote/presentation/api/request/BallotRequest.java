@@ -1,11 +1,10 @@
 package com.fiveoutoffive.moa_backend.vote.presentation.api.request;
 
 import com.fiveoutoffive.moa_backend.vote.application.command.BallotCommand;
-import jakarta.validation.constraints.NotEmpty;
 import java.util.List;
 
 public record BallotRequest(
-        @NotEmpty List<Long> optionIds
+        List<Long> optionIds
 ) {
 
     public BallotCommand toCommand() {
