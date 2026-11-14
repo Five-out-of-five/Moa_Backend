@@ -41,7 +41,10 @@ Python 서버가 구현할 API. 요청·응답 모두 JSON 이다.
 | `POST /v1/conflicts/detect` | `card{id,title,content}`, `candidates[]` | `conflicts[{cardId,reason}]` |
 | `POST /v1/compromises` | `cardType`, `cardA{title,content}`, `cardB` | `title`, `content` |
 | `POST /v1/layouts/recommend` | `purpose`, `widgetTypes[]`, `gridColumns` | `widgets[{widgetType,x,y,w,h}]`, `reason` |
-| `POST /v1/assistant/stream` | `roomId`, `question`, `context{cards,tasks,votes,moods}` | SSE |
+| `POST /v1/assistant/stream` | `roomId`, `question`, `context{today, cards[{id,type,title,content,writer}], tasks[{id,title,status,assignee,dueDate}], votes[{id,title}], moods[{mood}]}` | SSE |
+
+어시스턴트 `context` 의 사람 이름은 방 표시 이름(닉네임, 없으면 가입 때 정한 이름)만 보낸다. 담당자가 없으면 `"담당자 없음"`,
+나간·탈퇴 멤버는 `"나간 멤버"` 다. `today`·`dueDate` 는 한국 날짜(`yyyy-MM-dd`), 마감일이 없으면 `dueDate` 는 null 이다.
 
 어시스턴트 SSE 는 `data:` 한 줄에 JSON 하나를 보낸다. 답변 조각(`delta`)을 다 보낸 뒤 근거(`references`)를 한 번 보낸다(API 명세 순서).
 

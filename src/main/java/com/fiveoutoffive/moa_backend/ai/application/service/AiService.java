@@ -36,6 +36,7 @@ import com.fiveoutoffive.moa_backend.global.common.api.response.PageResponse;
 import com.fiveoutoffive.moa_backend.global.exception.BusinessException;
 import com.fiveoutoffive.moa_backend.global.exception.GlobalErrorCode;
 import com.fiveoutoffive.moa_backend.global.port.out.AiServerPort;
+import com.fiveoutoffive.moa_backend.global.type.MemberStatus;
 import com.fiveoutoffive.moa_backend.global.util.KstTime;
 import com.fiveoutoffive.moa_backend.global.util.Pages;
 import com.fiveoutoffive.moa_backend.ideacard.application.command.IdeaCardCreateCommand;
@@ -49,13 +50,17 @@ import com.fiveoutoffive.moa_backend.session.domain.model.BoardSession;
 import com.fiveoutoffive.moa_backend.session.domain.model.SessionStatus;
 import com.fiveoutoffive.moa_backend.session.domain.repository.BoardSessionRepository;
 import com.fiveoutoffive.moa_backend.session.exception.SessionErrorCode;
+import com.fiveoutoffive.moa_backend.task.domain.model.Task;
 import com.fiveoutoffive.moa_backend.task.domain.repository.TaskRepository;
 import com.fiveoutoffive.moa_backend.vote.domain.model.VoteStatus;
 import com.fiveoutoffive.moa_backend.vote.domain.repository.VoteRepository;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
@@ -74,6 +79,8 @@ public class AiService implements AiUseCase {
     private static final int MIN_SUMMARY_CARDS = 3;
     private static final int MAX_HISTORY = 100;
     private static final long SSE_TIMEOUT_MILLIS = 120_000;
+    private static final String NO_ASSIGNEE = "담당자 없음";
+    private static final String LEFT_MEMBER = "나간 멤버";
 
     private final AiGateway gateway;
     private final AiServerPort aiServerPort;
@@ -246,13 +253,43 @@ public class AiService implements AiUseCase {
         }
     }
 
-    /** 이 방의 데이터만 근거로 넘긴다. */
+    /**
+     * 이 방의 데이터만 근거로 넘긴다. "누가 썼어?", "마감 임박한 업무는?" 에 답할 수 있게 작성자·담당자·마감일과 오늘 날짜를 함께 보낸다.
+     * 사람 이름은 방 표시 이름(MemberRef.displayName)만 보낸다. 나간·탈퇴 멤버는 이름 대신 "나간 멤버" 로 보낸다.
+     */
     private Map<String, Object> roomContext(Long roomId) {
+        List<IdeaCard> cards = cardRepository.findByRoomIdAndDeletedAtIsNull(roomId);
+        List<Task> tasks = taskRepository.findByRoomIdAndDeletedAtIsNull(roomId);
+        Set<Long> people = new HashSet<>();
+        cards.forEach(c -> people.add(c.getWriterAccountId()));
+        tasks.forEach(t -> people.add(t.getAssigneeAccountId()));
+        Map<Long, MemberRef> refs = access.memberRefs(roomId, people);
         return Map.of(
-                "cards", cardRepository.findByRoomIdAndDeletedAtIsNull(roomId).stream().map(this::cardJson).toList(),
-                "tasks", taskRepository.findByRoomIdAndDeletedAtIsNull(roomId).stream().map(t -> Map.of("id", t.getId(), "title", t.getTitle(), "status", t.getStatus())).toList(),
+                "today", KstTime.todayKst().toString(),
+                "cards", cards.stream().map(c -> {
+                    Map<String, Object> json = new LinkedHashMap<>(cardJson(c));
+                    json.put("writer", nameOf(refs, c.getWriterAccountId()));
+                    return json;
+                }).toList(),
+                "tasks", tasks.stream().map(t -> taskJson(t, refs)).toList(),
                 "votes", voteRepository.findByRoomIdAndStatusAndDeletedAtIsNull(roomId, VoteStatus.OPEN).stream().map(v -> Map.of("id", v.getId(), "title", v.getTitle())).toList(),
                 "moods", moodRepository.findByRoomIdAndRecordedDate(roomId, KstTime.todayKst()).stream().map(m -> Map.of("mood", m.getMood())).toList());
+    }
+
+    private Map<String, Object> taskJson(Task t, Map<Long, MemberRef> refs) {
+        // 마감일이 없을 수 있어 null 을 담을 수 있는 맵을 쓴다(Map.of 는 null 불가).
+        Map<String, Object> json = new LinkedHashMap<>();
+        json.put("id", t.getId());
+        json.put("title", t.getTitle());
+        json.put("status", t.getStatus());
+        json.put("assignee", t.getAssigneeAccountId() == null ? NO_ASSIGNEE : nameOf(refs, t.getAssigneeAccountId()));
+        json.put("dueDate", t.getDueDate() == null ? null : t.getDueDate().toString());
+        return json;
+    }
+
+    private String nameOf(Map<Long, MemberRef> refs, Long accountId) {
+        MemberRef ref = refs.get(accountId);
+        return ref == null || ref.memberStatus() != MemberStatus.ACTIVE || ref.displayName() == null ? LEFT_MEMBER : ref.displayName();
     }
 
     private Map<String, Object> cardJson(IdeaCard c) {
