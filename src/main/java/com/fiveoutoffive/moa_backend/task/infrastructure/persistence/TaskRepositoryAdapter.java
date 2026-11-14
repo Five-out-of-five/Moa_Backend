@@ -21,7 +21,8 @@ public class TaskRepositoryAdapter implements TaskRepository {
 
     @Override
     public Task save(Task task) {
-        TaskJpaEntity saved = springDataRepository.save(taskMapper.toJpaEntity(task));
+        // flush 해야 @Version 이 올라간 값이 엔티티에 반영된다. 그 전에 변환하면 응답에 이전 version 이 나간다.
+        TaskJpaEntity saved = springDataRepository.saveAndFlush(taskMapper.toJpaEntity(task));
         return taskMapper.toDomain(saved);
     }
 
@@ -69,6 +70,11 @@ public class TaskRepositoryAdapter implements TaskRepository {
     @Override
     public long countByRoomIdAndAssigneeAccountIdAndStatusNotAndDeletedAtIsNull(Long roomId, Long assigneeAccountId, TaskStatus status) {
         return springDataRepository.countByRoomIdAndAssigneeAccountIdAndStatusNotAndDeletedAtIsNull(roomId, assigneeAccountId, status);
+    }
+
+    @Override
+    public void updateSortOrder(Long id, int sortOrder) {
+        springDataRepository.updateSortOrder(id, sortOrder);
     }
 
     @Override

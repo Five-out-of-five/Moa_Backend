@@ -32,4 +32,9 @@ public class ChatMessageFileRepositoryAdapter implements ChatMessageFileReposito
     public List<ChatMessageFile> findByMessageIdInOrderBySortOrderAsc(Collection<Long> messageIds) {
         return springDataRepository.findByMessageIdInOrderBySortOrderAsc(messageIds).stream().map(chatMessageFileMapper::toDomain).toList();
     }
+
+    @Override
+    public List<Long> findFileIdsByChannelId(Long channelId) {
+        return springDataRepository.findFileIdsByChannelId(channelId);
+    }
 }

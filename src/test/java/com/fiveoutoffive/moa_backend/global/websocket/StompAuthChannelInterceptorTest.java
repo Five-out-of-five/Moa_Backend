@@ -20,6 +20,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @SuppressWarnings("unchecked")
@@ -60,7 +62,7 @@ class StompAuthChannelInterceptorTest {
     }
 
     @Test
-    void 헤더가_없으면_CONNECT_를_거절한다() {
+    void 헤더도_쿠키도_없으면_CONNECT_를_거절한다() {
         assertThatThrownBy(() -> interceptor.preSend(frame(StompCommand.CONNECT, null, new HashMap<>(), null), null))
                 .isInstanceOf(MessageDeliveryException.class);
     }
@@ -70,6 +72,53 @@ class StompAuthChannelInterceptorTest {
         when(jwtProvider.parseClaims(anyString())).thenThrow(new JwtException("bad signature"));
 
         assertThatThrownBy(() -> interceptor.preSend(frame(StompCommand.CONNECT, "Bearer bad", new HashMap<>(), null), null))
+                .isInstanceOf(MessageDeliveryException.class);
+    }
+
+    @Test
+    void 헤더가_없으면_핸드셰이크_쿠키_토큰으로_인증한다() {
+        Claims claims = mock(Claims.class);
+        when(claims.getSubject()).thenReturn("7");
+        when(jwtProvider.parseClaims("cookie-token")).thenReturn(claims);
+        when(userPort.findUserIdByPrincipal("7")).thenReturn(Optional.of(7L));
+        Map<String, Object> attributes = new HashMap<>(Map.of(WebSocketSessionAttributes.HANDSHAKE_ACCESS_TOKEN, "cookie-token"));
+
+        Message<?> result = interceptor.preSend(frame(StompCommand.CONNECT, null, attributes, null), null);
+
+        assertThat(attributes.get(WebSocketSessionAttributes.USER_ID)).isEqualTo(7L);
+        assertThat(StompHeaderAccessor.wrap(result).getUser().getName()).isEqualTo("7");
+    }
+
+    @Test
+    void 헤더와_쿠키가_모두_있으면_헤더를_쓴다() {
+        Claims claims = mock(Claims.class);
+        when(claims.getSubject()).thenReturn("8");
+        when(jwtProvider.parseClaims("header-token")).thenReturn(claims);
+        when(userPort.findUserIdByPrincipal("8")).thenReturn(Optional.of(8L));
+        Map<String, Object> attributes = new HashMap<>(Map.of(WebSocketSessionAttributes.HANDSHAKE_ACCESS_TOKEN, "cookie-token"));
+
+        interceptor.preSend(frame(StompCommand.CONNECT, "Bearer header-token", attributes, null), null);
+
+        assertThat(attributes.get(WebSocketSessionAttributes.USER_ID)).isEqualTo(8L);
+        verify(jwtProvider, never()).parseClaims("cookie-token");
+    }
+
+    @Test
+    void 헤더_토큰이_틀리면_쿠키가_맞아도_거절한다() {
+        when(jwtProvider.parseClaims("bad")).thenThrow(new JwtException("bad signature"));
+        Map<String, Object> attributes = new HashMap<>(Map.of(WebSocketSessionAttributes.HANDSHAKE_ACCESS_TOKEN, "cookie-token"));
+
+        assertThatThrownBy(() -> interceptor.preSend(frame(StompCommand.CONNECT, "Bearer bad", attributes, null), null))
+                .isInstanceOf(MessageDeliveryException.class);
+        verify(jwtProvider, never()).parseClaims("cookie-token");
+    }
+
+    @Test
+    void 쿠키_토큰이_틀리면_CONNECT_를_거절한다() {
+        when(jwtProvider.parseClaims("expired")).thenThrow(new JwtException("expired"));
+        Map<String, Object> attributes = new HashMap<>(Map.of(WebSocketSessionAttributes.HANDSHAKE_ACCESS_TOKEN, "expired"));
+
+        assertThatThrownBy(() -> interceptor.preSend(frame(StompCommand.CONNECT, null, attributes, null), null))
                 .isInstanceOf(MessageDeliveryException.class);
     }
 
@@ -88,6 +137,31 @@ class StompAuthChannelInterceptorTest {
         when(authorizer.canAccess(7L, "/topic/rooms/1")).thenReturn(true);
 
         assertThat(interceptor.preSend(frame(StompCommand.SUBSCRIBE, null, attributes, "/topic/rooms/1"), null)).isNotNull();
+    }
+
+    @Test
+    void 브로커_경로로_직접_SEND_하면_거절한다() {
+        Map<String, Object> attributes = new HashMap<>(Map.of(WebSocketSessionAttributes.USER_ID, 7L));
+        when(authorizer.canAccess(org.mockito.ArgumentMatchers.eq(7L), anyString())).thenReturn(true);
+
+        assertThatThrownBy(() -> interceptor.preSend(frame(StompCommand.SEND, null, attributes, "/topic/rooms/1"), null))
+                .isInstanceOf(MessageDeliveryException.class);
+        assertThatThrownBy(() -> interceptor.preSend(frame(StompCommand.SEND, null, attributes, "/user/8/queue/notifications"), null))
+                .isInstanceOf(MessageDeliveryException.class);
+        assertThat(interceptor.preSend(frame(StompCommand.SEND, null, attributes, "/app/channels/1/typing"), null)).isNotNull();
+    }
+
+    @Test
+    void 본인_개인_큐_외의_user_경로_구독은_거절한다() {
+        Map<String, Object> attributes = new HashMap<>(Map.of(WebSocketSessionAttributes.USER_ID, 7L));
+        when(authorizer.canAccess(org.mockito.ArgumentMatchers.eq(7L), anyString())).thenReturn(true);
+
+        assertThat(interceptor.preSend(frame(StompCommand.SUBSCRIBE, null, attributes, "/user/queue/notifications"), null)).isNotNull();
+        assertThat(interceptor.preSend(frame(StompCommand.SUBSCRIBE, null, attributes, "/user/queue/channels"), null)).isNotNull();
+        assertThatThrownBy(() -> interceptor.preSend(frame(StompCommand.SUBSCRIBE, null, attributes, "/user/8/queue/notifications"), null))
+                .isInstanceOf(MessageDeliveryException.class);
+        assertThatThrownBy(() -> interceptor.preSend(frame(StompCommand.SUBSCRIBE, null, attributes, "/app/rooms/1"), null))
+                .isInstanceOf(MessageDeliveryException.class);
     }
 
     private Message<byte[]> frame(StompCommand command, String authorization, Map<String, Object> attributes, String destination) {

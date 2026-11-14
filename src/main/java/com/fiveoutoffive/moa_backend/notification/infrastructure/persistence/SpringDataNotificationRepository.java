@@ -23,6 +23,13 @@ public interface SpringDataNotificationRepository extends JpaRepository<Notifica
     int markAllRead(@Param("owner") Long owner, @Param("now") LocalDateTime now);
 
     @Modifying
+    @Query("delete from NotificationJpaEntity n where n.ownerAccountId = :owner and n.roomId = :roomId"
+            + " and n.notificationGroup <> com.fiveoutoffive.moa_backend.notification.domain.model.NotificationGroup.SYSTEM"
+            + " and n.notificationType not in (com.fiveoutoffive.moa_backend.notification.domain.model.NotificationType.MEMBER_KICKED,"
+            + " com.fiveoutoffive.moa_backend.notification.domain.model.NotificationType.JOIN_PROCESSED)")
+    int deleteLeftRoomNotifications(@Param("owner") Long owner, @Param("roomId") Long roomId);
+
+    @Modifying
     @Query("delete from NotificationJpaEntity n where n.createdAt < :before")
     int deleteOlderThan(@Param("before") LocalDateTime before);
 }

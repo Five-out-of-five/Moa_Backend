@@ -31,6 +31,9 @@ public interface TaskRepository {
 
     long countByRoomIdAndAssigneeAccountIdAndStatusNotAndDeletedAtIsNull(Long roomId, Long assigneeAccountId, TaskStatus status);
 
+    /** 칸 안 순서만 바꾼다. 다른 멤버의 이동이 충돌로 거절되지 않도록 version 은 올리지 않는다. */
+    void updateSortOrder(Long id, int sortOrder);
+
     int findMaxSortOrder(@Param("roomId") Long roomId, @Param("status") TaskStatus status);
 
     List<Task> findDueSoon(@Param("date") LocalDate date, @Param("done") TaskStatus done);

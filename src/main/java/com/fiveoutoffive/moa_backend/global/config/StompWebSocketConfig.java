@@ -97,6 +97,11 @@ public class StompWebSocketConfig implements WebSocketMessageBrokerConfigurer {
                 .map(String::trim)
                 .filter(origin -> !origin.isEmpty())
                 .toList();
+        // /ws 는 accessToken 쿠키로도 인증하므로 Origin 허용 목록이 유일한 CSRF 방어선이다. 와일드카드는 막는다.
+        if (origins.isEmpty() || origins.stream().anyMatch(origin -> origin.equals("*") || origin.contains("://*"))) {
+            throw new IllegalStateException("app.cors.allowed-origins(CORS_ALLOWED_ORIGINS) 에 와일드카드를 쓸 수 없습니다. "
+                    + "WebSocket 쿠키 인증 때문에 프론트 주소를 정확히 적어야 합니다. 현재 값: " + allowedOrigins);
+        }
 
         return origins.toArray(String[]::new);
     }

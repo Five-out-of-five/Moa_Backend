@@ -22,7 +22,8 @@ public class VoteRepositoryAdapter implements VoteRepository {
 
     @Override
     public Vote save(Vote vote) {
-        VoteJpaEntity saved = springDataRepository.save(voteMapper.toJpaEntity(vote));
+        // flush 해야 @Version 이 올라간 값이 엔티티에 반영된다. 그 전에 변환하면 응답에 이전 version 이 나간다.
+        VoteJpaEntity saved = springDataRepository.saveAndFlush(voteMapper.toJpaEntity(vote));
         return voteMapper.toDomain(saved);
     }
 

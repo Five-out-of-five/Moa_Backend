@@ -17,6 +17,12 @@ public final class WebSocketSessionAttributes {
     /** JWT role 클레임. 토큰에 없으면 null이다. (String) */
     public static final String ROLE = "role";
 
+    /**
+     * 핸드셰이크에 실린 accessToken 쿠키 값. CONNECT 에 Authorization 헤더가 없을 때만 인증에 쓴다. (String)
+     * {@link JwtHandshakeInterceptor} 가 넣고, 쿠키가 없으면 비어 있다.
+     */
+    public static final String HANDSHAKE_ACCESS_TOKEN = "handshakeAccessToken";
+
     private WebSocketSessionAttributes() {
         throw new IllegalStateException("Utility class");
     }

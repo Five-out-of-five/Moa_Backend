@@ -5,6 +5,7 @@ import java.time.LocalDate;
 import java.util.Collection;
 import java.util.List;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -25,6 +26,11 @@ public interface SpringDataTaskRepository extends JpaRepository<TaskJpaEntity, L
     List<TaskJpaEntity> findByRoomIdAndRegistrantAccountIdAndAssigneeAccountIdIsNullAndDeletedAtIsNull(Long roomId, Long registrantAccountId);
 
     long countByRoomIdAndAssigneeAccountIdAndStatusNotAndDeletedAtIsNull(Long roomId, Long assigneeAccountId, TaskStatus status);
+
+    // JPQL 일괄 update 는 versioned 를 쓰지 않으면 @Version 을 올리지 않는다.
+    @Modifying
+    @Query("update TaskJpaEntity t set t.sortOrder = :sortOrder where t.id = :id")
+    int updateSortOrder(@Param("id") Long id, @Param("sortOrder") int sortOrder);
 
     @Query("select coalesce(max(t.sortOrder), -1) from TaskJpaEntity t where t.roomId = :roomId and t.status = :status and t.deletedAt is null")
     int findMaxSortOrder(@Param("roomId") Long roomId, @Param("status") TaskStatus status);
