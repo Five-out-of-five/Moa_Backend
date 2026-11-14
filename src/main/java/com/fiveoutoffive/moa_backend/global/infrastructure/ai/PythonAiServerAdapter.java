@@ -4,7 +4,9 @@ import com.fiveoutoffive.moa_backend.global.port.out.AiServerPort;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.io.BufferedReader;
+import java.io.IOException;
 import java.io.InputStreamReader;
+import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.util.Optional;
 import java.util.function.Consumer;
@@ -67,6 +69,11 @@ public class PythonAiServerAdapter implements AiServerPort {
                                     onDelta.accept(line.substring(SSE_DATA_PREFIX.length()).stripLeading());
                                 }
                             }
+                        } catch (IOException | UncheckedIOException e) {
+                            // 응답을 받기 시작한 뒤의 끊김이다(답변 도중 LLM 실패로 Python 이 연결을 끊음, 조각 사이 대기 초과 등).
+                            // 서버는 살아 있으므로 끊김으로 표시하지 않는다. 표시하면 다음 헬스 체크까지 모든 방의 AI 호출이 막힌다.
+                            log.warn("[AI] 스트림 중간 끊김 path={}: {}", path, e.getMessage());
+                            return false;
                         }
                         return true;
                     }));

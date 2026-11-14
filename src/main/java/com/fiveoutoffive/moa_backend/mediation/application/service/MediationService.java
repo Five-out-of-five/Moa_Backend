@@ -34,7 +34,9 @@ import java.util.List;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @Service
 @Transactional
@@ -50,6 +52,7 @@ public class MediationService implements MediationUseCase {
     private final RoomAccessService access;
     private final AiGateway aiGateway;
     private final RealtimePublisher realtime;
+    private final TransactionTemplate transactionTemplate;
 
     @Transactional(readOnly = true)
     @Override
@@ -67,7 +70,7 @@ public class MediationService implements MediationUseCase {
         CardConflict c = find(roomId, conflictId);
         ConflictDetailResponse.MyDraft draft = draftRepository.findByConflictIdAndRequestedByAccountIdAndStatus(conflictId, accountId, DraftStatus.DRAFT).stream().findFirst()
                 .map(d -> new ConflictDetailResponse.MyDraft(d.getId(), d.getCardType(), d.getTitle(), d.getContent(), d.getStatus())).orElse(null);
-        return new ConflictDetailResponse(c.getId(), c.getStatus(), c.getReason(), cardAssembler.detail(roomId, accountId, card(c.getCardAId())), cardAssembler.detail(roomId, accountId, card(c.getCardBId())), draft, c.getAdoptedCardId());
+        return new ConflictDetailResponse(c.getId(), c.getStatus(), c.getReason(), cardAssembler.detail(roomId, accountId, card(roomId, c.getCardAId())), cardAssembler.detail(roomId, accountId, card(roomId, c.getCardBId())), draft, c.getAdoptedCardId());
     }
 
     @Override
@@ -82,11 +85,32 @@ public class MediationService implements MediationUseCase {
         return summary(saved);
     }
 
+    /**
+     * AI 응답(최대 30초)을 기다리는 동안 DB 연결을 붙잡지 않도록 트랜잭션 없이 읽고 호출한 뒤, 저장만 짧게 묶는다.
+     * 기다리는 사이 다른 멤버가 채택하거나 해제했을 수 있어 저장 직전에 다시 확인한다. 이때 409 가 나도 AI 호출은
+     * 성공했으므로 한도는 돌려주지 않는다.
+     */
     @Override
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public CompromiseDraftResponse createDraft(Long accountId, Long roomId, Long conflictId) {
         access.requireMember(roomId, accountId);
         requireWidget(roomId);
-        CardConflict c = find(roomId, conflictId);
+        CardConflict c = requireDraftable(find(roomId, conflictId));
+        IdeaCard a = card(roomId, c.getCardAId());
+        IdeaCard b = card(roomId, c.getCardBId());
+        DraftCardType type = a.getCardType() == CardType.AGENDA || b.getCardType() == CardType.AGENDA ? DraftCardType.AGENDA : DraftCardType.TRY;
+        AiCompromisePayload payload = aiGateway.call(roomId, accountId, AiFeature.COMPROMISE, "/v1/compromises",
+                Map.of("cardType", type, "cardA", Map.of("title", a.getTitle(), "content", String.valueOf(a.getContent())), "cardB", Map.of("title", b.getTitle(), "content", String.valueOf(b.getContent()))), AiCompromisePayload.class);
+        CompromiseDraft draft = transactionTemplate.execute(tx -> {
+            CardConflict latest = requireDraftable(find(roomId, conflictId));
+            CompromiseDraft saved = draftRepository.save(CompromiseDraft.builder().conflictId(conflictId).requestedByAccountId(accountId).cardType(type).title(payload.title()).content(payload.content()).status(DraftStatus.DRAFT).build());
+            conflictRepository.save(latest.toBuilder().status(ConflictStatus.PROPOSED).build());
+            return saved;
+        });
+        return toResponse(draft);
+    }
+
+    private CardConflict requireDraftable(CardConflict c) {
         if (c.getAdoptedCardId() != null) {
             throw new BusinessException(MediationErrorCode.CONFLICT_ALREADY_ADOPTED);
         }
@@ -94,14 +118,7 @@ public class MediationService implements MediationUseCase {
         if (c.getStatus() == ConflictStatus.DISMISSED) {
             throw new BusinessException(MediationErrorCode.CONFLICT_ALREADY_DISMISSED);
         }
-        IdeaCard a = card(c.getCardAId());
-        IdeaCard b = card(c.getCardBId());
-        DraftCardType type = a.getCardType() == CardType.AGENDA || b.getCardType() == CardType.AGENDA ? DraftCardType.AGENDA : DraftCardType.TRY;
-        AiCompromisePayload payload = aiGateway.call(roomId, accountId, AiFeature.COMPROMISE, "/v1/compromises",
-                Map.of("cardType", type, "cardA", Map.of("title", a.getTitle(), "content", String.valueOf(a.getContent())), "cardB", Map.of("title", b.getTitle(), "content", String.valueOf(b.getContent()))), AiCompromisePayload.class);
-        CompromiseDraft draft = draftRepository.save(CompromiseDraft.builder().conflictId(conflictId).requestedByAccountId(accountId).cardType(type).title(payload.title()).content(payload.content()).status(DraftStatus.DRAFT).build());
-        conflictRepository.save(c.toBuilder().status(ConflictStatus.PROPOSED).build());
-        return toResponse(draft);
+        return c;
     }
 
     @Override
@@ -114,12 +131,12 @@ public class MediationService implements MediationUseCase {
         CompromiseDraft draft = myOpenDraft(conflictId, draftId, accountId);
         IdeaCardDetailResponse created = ideaCardUseCase.create(accountId, roomId, new IdeaCardCreateCommand(CardType.valueOf(draft.getCardType().name()), command.title(), command.content(), List.of()));
         Long cardId = created.summary().cardId();
-        IdeaCard card = card(cardId);
+        IdeaCard card = card(roomId, cardId);
         cardRepository.save(card.toBuilder().isAiGenerated(true).build());
         draftRepository.save(draft.toBuilder().status(DraftStatus.ADOPTED).title(command.title()).content(command.content()).adoptedCardId(cardId).build());
         conflictRepository.save(c.toBuilder().adoptedCardId(cardId).build());
         realtime.toRoom(roomId, "CONFLICT_CHANGED", Map.of("conflictId", conflictId), accountId);
-        return cardAssembler.detail(roomId, accountId, card(cardId));
+        return cardAssembler.detail(roomId, accountId, card(roomId, cardId));
     }
 
     @Override
@@ -149,12 +166,13 @@ public class MediationService implements MediationUseCase {
         return conflictRepository.findById(conflictId).filter(c -> c.getRoomId().equals(roomId)).orElseThrow(() -> new BusinessException(MediationErrorCode.CONFLICT_NOT_FOUND));
     }
 
-    private IdeaCard card(Long cardId) {
-        return cardRepository.findById(cardId).orElseThrow(() -> new BusinessException(IdeaCardErrorCode.CARD_NOT_FOUND));
+    // 충돌 행이 다른 방 카드를 가리켜도(잘못 저장된 경우) 그 카드를 보여주지 않는다.
+    private IdeaCard card(Long roomId, Long cardId) {
+        return cardRepository.findById(cardId).filter(c -> c.getRoomId().equals(roomId)).orElseThrow(() -> new BusinessException(IdeaCardErrorCode.CARD_NOT_FOUND));
     }
 
     private ConflictSummaryResponse summary(CardConflict c) {
-        return new ConflictSummaryResponse(c.getId(), c.getStatus(), new ConflictSummaryResponse.CardRef(c.getCardAId(), card(c.getCardAId()).getTitle()), new ConflictSummaryResponse.CardRef(c.getCardBId(), card(c.getCardBId()).getTitle()), c.getDetectedAt());
+        return new ConflictSummaryResponse(c.getId(), c.getStatus(), new ConflictSummaryResponse.CardRef(c.getCardAId(), card(c.getRoomId(), c.getCardAId()).getTitle()), new ConflictSummaryResponse.CardRef(c.getCardBId(), card(c.getRoomId(), c.getCardBId()).getTitle()), c.getDetectedAt());
     }
 
     private CompromiseDraftResponse toResponse(CompromiseDraft d) {
