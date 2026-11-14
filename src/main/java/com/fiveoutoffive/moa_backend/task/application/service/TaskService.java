@@ -184,12 +184,12 @@ public class TaskService implements TaskUseCase {
         if (from != to) {
             List<Task> source = new ArrayList<>(taskRepository.findByRoomIdAndStatusAndDeletedAtIsNullOrderBySortOrderAsc(roomId, from));
             source.removeIf(t -> t.getId().equals(taskId));
-            changed.addAll(reorder(source));
+            changed.addAll(reorder(source, taskId));
         }
         List<Task> target = new ArrayList<>(taskRepository.findByRoomIdAndStatusAndDeletedAtIsNullOrderBySortOrderAsc(roomId, to));
         target.removeIf(t -> t.getId().equals(taskId));
         target.add(Math.min(command.toIndex(), target.size()), updated);
-        changed.addAll(reorder(target));
+        changed.addAll(reorder(target, taskId));
         if (from != to) {
             history(taskId, TaskHistoryType.STATUS_CHANGED, from, to, null, null, accountId);
             notificationSender.send(roomId, accountId, NotificationType.TASK_STATUS_CHANGED, List.of(task.getRegistrantAccountId()), "등록한 업무의 상태가 변경되었습니다", task.getTitle(), "TASK", taskId);
@@ -432,12 +432,24 @@ public class TaskService implements TaskUseCase {
         historyRepository.save(TaskHistory.builder().taskId(taskId).historyType(type).fromStatus(from == null ? null : from.name()).toStatus(to == null ? null : to.name()).fromAssigneeId(fromAssignee).toAssigneeId(toAssignee).actorAccountId(actor).build());
     }
 
-    private List<Task> reorder(List<Task> tasks) {
-        List<Task> saved = new ArrayList<>();
+    /**
+     * 칸 안 순서를 0부터 다시 매긴다. 옮긴 업무만 저장해 version 을 올리고(동시 이동 감지),
+     * 순서만 밀린 업무는 version 을 그대로 두어 다른 멤버의 이동이 충돌로 거절되지 않게 한다.
+     */
+    private List<Task> reorder(List<Task> tasks, Long movedTaskId) {
+        List<Task> result = new ArrayList<>();
         for (int i = 0; i < tasks.size(); i++) {
-            saved.add(taskRepository.save(tasks.get(i).toBuilder().sortOrder(i).build()));
+            Task task = tasks.get(i);
+            if (task.getId().equals(movedTaskId)) {
+                result.add(taskRepository.save(task.toBuilder().sortOrder(i).build()));
+            } else {
+                if (task.getSortOrder() == null || task.getSortOrder() != i) {
+                    taskRepository.updateSortOrder(task.getId(), i);
+                }
+                result.add(task.toBuilder().sortOrder(i).build());
+            }
         }
-        return saved;
+        return result;
     }
 
     private TaskDetailResponse broadcast(Long roomId, Long accountId, Task task, String type) {

@@ -111,12 +111,16 @@ public class NotificationService implements NotificationUseCase {
     }
 
     private void upsert(Long accountId, Long roomId, List<GroupSettingCommand> groups) {
-        if (groups.stream().anyMatch(g -> g.group() == NotificationGroup.SYSTEM)) {
+        // 관리자·시스템 그룹은 끌 수만 없다. 조회 결과를 그대로 저장해도 되도록 켜기(true)·비움(null)은 저장하지 않고 넘어간다.
+        if (groups.stream().anyMatch(g -> g.group() == NotificationGroup.SYSTEM && Boolean.FALSE.equals(g.enabled()))) {
             throw new BusinessException(NotificationErrorCode.NOTIFICATION_GROUP_LOCKED);
         }
         Map<String, NotificationSetting> existing = (roomId == null ? settingRepository.findByAccountIdAndRoomIdIsNull(accountId) : settingRepository.findByAccountIdAndRoomId(accountId, roomId))
                 .stream().collect(Collectors.toMap(s -> s.getNotificationGroup().name(), Function.identity()));
         for (GroupSettingCommand group : groups) {
+            if (group.group() == NotificationGroup.SYSTEM) {
+                continue;
+            }
             NotificationSettingGroup target = NotificationSettingGroup.valueOf(group.group().name());
             NotificationSetting current = existing.get(target.name());
             if (group.enabled() == null) {

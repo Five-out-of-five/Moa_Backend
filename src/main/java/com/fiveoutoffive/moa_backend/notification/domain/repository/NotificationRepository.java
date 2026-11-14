@@ -24,5 +24,8 @@ public interface NotificationRepository {
 
     int markAllRead(@Param("owner") Long owner, @Param("now") LocalDateTime now);
 
+    /** 방을 나간 회원의 그 방 알림을 지운다. 관리자·시스템 알림과 퇴출·참여 결과 알림은 남긴다. */
+    int deleteLeftRoomNotifications(Long ownerAccountId, Long roomId);
+
     int deleteOlderThan(@Param("before") LocalDateTime before);
 }

@@ -15,6 +15,11 @@ import org.springframework.stereotype.Repository;
 @RequiredArgsConstructor
 public class NotificationRepositoryAdapter implements NotificationRepository {
 
+    @Override
+    public int deleteLeftRoomNotifications(Long ownerAccountId, Long roomId) {
+        return springDataRepository.deleteLeftRoomNotifications(ownerAccountId, roomId);
+    }
+
     private final SpringDataNotificationRepository springDataRepository;
     private final NotificationMapper notificationMapper;
 

@@ -139,7 +139,14 @@ public class ChatService implements ChatUseCase {
         if (!command.confirmName().equals(channel.getName())) {
             throw new BusinessException(ChatErrorCode.CHANNEL_DELETE_CONFIRM_MISMATCH);
         }
-        channelRepository.save(channel.toBuilder().deletedAt(KstTime.nowUtc()).build());
+        // 요구사항 51: 채널 삭제 시 메시지와 첨부도 함께 삭제한다. (방 파일 목록·저장 용량에서도 빠진다)
+        var now = KstTime.nowUtc();
+        List<Long> fileIds = messageFileRepository.findFileIdsByChannelId(channelId);
+        if (!fileIds.isEmpty()) {
+            fileAttachSupport.softDelete(fileIds);
+        }
+        messageRepository.softDeleteByChannelId(channelId, now);
+        channelRepository.save(channel.toBuilder().deletedAt(now).build());
         realtime.toChannel(channelId, "CHANNEL_DELETED", Map.of("channelId", channelId));
     }
 
@@ -301,6 +308,15 @@ public class ChatService implements ChatUseCase {
         ChatMessage saved = messageRepository.save(ownMessage(channelId, messageId, accountId).toBuilder().deletedAt(KstTime.nowUtc()).build());
         fileAttachSupport.softDelete(messageFileRepository.findByMessageIdInOrderBySortOrderAsc(List.of(messageId)).stream().map(ChatMessageFile::getFileId).toList());
         realtime.toChannel(channelId, "MESSAGE_DELETED", toResponses(roomId, List.of(saved)).getFirst());
+    }
+
+    /** 채널이 속한 방 기준의 표시 이름(방별 닉네임, 없으면 기본 이름). 참여 여부는 STOMP SEND 권한 검사가 먼저 확인한다. */
+    @Transactional(readOnly = true)
+    @Override
+    public Optional<MemberRef> typingMember(Long accountId, Long channelId) {
+        return channelRepository.findById(channelId)
+                .filter(channel -> channel.getDeletedAt() == null)
+                .map(channel -> access.memberRef(channel.getRoomId(), accountId));
     }
 
     @Override

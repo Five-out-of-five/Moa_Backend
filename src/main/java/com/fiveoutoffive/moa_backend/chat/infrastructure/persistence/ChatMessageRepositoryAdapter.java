@@ -45,6 +45,11 @@ public class ChatMessageRepositoryAdapter implements ChatMessageRepository {
     }
 
     @Override
+    public int softDeleteByChannelId(Long channelId, LocalDateTime deletedAt) {
+        return springDataRepository.softDeleteByChannelId(channelId, deletedAt);
+    }
+
+    @Override
     public long countByDeletedAtIsNull() {
         return springDataRepository.countByDeletedAtIsNull();
     }

@@ -12,10 +12,12 @@ import com.fiveoutoffive.moa_backend.chat.application.result.ChannelMemberRespon
 import com.fiveoutoffive.moa_backend.chat.application.result.ChannelResponse;
 import com.fiveoutoffive.moa_backend.chat.application.result.MessageResponse;
 import com.fiveoutoffive.moa_backend.global.common.api.response.CursorResponse;
+import com.fiveoutoffive.moa_backend.global.common.api.response.MemberRef;
 import com.fiveoutoffive.moa_backend.room.domain.event.RoomCreatedEvent;
 import com.fiveoutoffive.moa_backend.room.domain.event.RoomMemberJoinedEvent;
 import com.fiveoutoffive.moa_backend.room.domain.event.RoomMemberLeftEvent;
 import java.util.List;
+import java.util.Optional;
 
 public interface ChatUseCase {
 
@@ -54,6 +56,9 @@ public interface ChatUseCase {
     void deleteMessage(Long accountId, Long roomId, Long channelId, Long messageId);
 
     void markRead(Long accountId, Long roomId, Long channelId, ReadCommand command);
+
+    /** 입력 중 표시에 쓸 표시 이름(MemberRef). 채널이 없거나 삭제되었으면 비어 있다. */
+    Optional<MemberRef> typingMember(Long accountId, Long channelId);
 
     void onRoomCreated(RoomCreatedEvent event);
 

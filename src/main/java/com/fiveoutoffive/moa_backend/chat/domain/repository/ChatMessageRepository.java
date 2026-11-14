@@ -19,6 +19,9 @@ public interface ChatMessageRepository {
 
     long countUnread(@Param("channelId") Long channelId, @Param("lastRead") long lastRead, @Param("me") Long me);
 
+    /** 채널의 삭제되지 않은 메시지를 모두 삭제 처리한다. (채널 삭제) */
+    int softDeleteByChannelId(Long channelId, LocalDateTime deletedAt);
+
     long countByDeletedAtIsNull();
 
     long countByCreatedAtGreaterThanEqualAndCreatedAtLessThan(LocalDateTime from, LocalDateTime to);

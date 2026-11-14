@@ -13,4 +13,7 @@ public interface ChatMessageFileRepository {
     Optional<ChatMessageFile> findById(Long id);
 
     List<ChatMessageFile> findByMessageIdInOrderBySortOrderAsc(Collection<Long> messageIds);
+
+    /** 채널에 속한 메시지들의 첨부 파일 ID (채널 삭제 때 파일도 함께 지운다) */
+    List<Long> findFileIdsByChannelId(Long channelId);
 }
