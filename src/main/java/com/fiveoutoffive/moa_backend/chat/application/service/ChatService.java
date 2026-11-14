@@ -57,6 +57,8 @@ import org.springframework.context.event.EventListener;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.StringUtils;
 
 /** 채널·1:1 대화·메시지. 전송은 REST, 수신은 STOMP 다. */
@@ -170,6 +172,8 @@ public class ChatService implements ChatUseCase {
         requireMutable(channel);
         ChatChannelMember me = joined(channelId, accountId);
         memberRepository.save(me.toBuilder().status(ChannelMemberStatus.LEFT).leftAt(KstTime.nowUtc()).build());
+        // 요구사항 51: 나가면 이후 메시지를 받지 않는다.
+        realtime.unsubscribe(accountId, "/topic/channels/" + channelId);
     }
 
     @Override
@@ -207,11 +211,13 @@ public class ChatService implements ChatUseCase {
         if (targetId.equals(channel.getCreatorAccountId())) {
             throw new BusinessException(ChatErrorCode.CHANNEL_CANNOT_KICK_CREATOR);
         }
-        ChatChannelMember target = memberRepository.findByChannelIdAndAccountId(channelId, targetId).orElseThrow(() -> new BusinessException(RoomErrorCode.MEMBER_NOT_FOUND));
+        ChatChannelMember target = memberRepository.findByChannelIdAndAccountId(channelId, targetId)
+                .filter(m -> m.getStatus() == ChannelMemberStatus.JOINED || m.getStatus() == ChannelMemberStatus.INVITED)
+                .orElseThrow(() -> new BusinessException(RoomErrorCode.MEMBER_NOT_FOUND));
         memberRepository.save(target.toBuilder().status(ChannelMemberStatus.KICKED).leftAt(KstTime.nowUtc()).build());
         realtime.toUser(targetId, "channels", new MyChannelEvent("KICKED", channelId, roomId, null));
-        // 이미 맺은 구독을 끊는다. 재연결하면 이 채널은 구독 권한 검사에서 거절된다.
-        realtime.disconnectUser(String.valueOf(targetId));
+        // 이 채널 구독만 커밋 후 해제한다. 연결 전체를 끊으면 KICKED 이벤트와 다른 방 실시간까지 끊긴다.
+        realtime.unsubscribe(targetId, "/topic/channels/" + channelId);
     }
 
     @Override
@@ -268,7 +274,9 @@ public class ChatService implements ChatUseCase {
         String dedupKey = RedisKeys.MESSAGE_DEDUP_PREFIX + channelId + ":" + command.clientMessageId();
         String duplicated = redisTemplate.opsForValue().get(dedupKey);
         if (duplicated != null) {
-            return messageRepository.findById(Long.valueOf(duplicated)).map(m -> toResponses(roomId, List.of(m)).getFirst()).orElseThrow(() -> new BusinessException(ChatErrorCode.MESSAGE_NOT_FOUND));
+            MessageResponse found = messageRepository.findById(Long.valueOf(duplicated)).map(m -> toResponses(roomId, List.of(m)).getFirst())
+                    .orElseThrow(() -> new BusinessException(ChatErrorCode.MESSAGE_NOT_FOUND));
+            return withClientMessageId(found, command.clientMessageId());
         }
         fileAttachSupport.requireAttachable(roomId, accountId, fileIds, FileGroup.CHAT_ATTACHMENT, 0);
         ChatMessage saved = messageRepository.save(ChatMessage.builder().channelId(channelId).senderAccountId(accountId)
@@ -276,9 +284,9 @@ public class ChatService implements ChatUseCase {
         for (int i = 0; i < fileIds.size(); i++) {
             messageFileRepository.save(ChatMessageFile.builder().messageId(saved.getId()).fileId(fileIds.get(i)).sortOrder(i).build());
         }
-        redisTemplate.opsForValue().set(dedupKey, String.valueOf(saved.getId()), DEDUP_TTL);
-        MessageResponse base = toResponses(roomId, List.of(saved)).getFirst();
-        MessageResponse response = new MessageResponse(base.messageId(), base.channelId(), base.messageType(), base.sender(), base.content(), base.files(), false, false, base.createdAt(), command.clientMessageId());
+        // 롤백되면 키가 없는 메시지를 가리켜 재전송이 404 가 되므로 커밋 후에 기록한다.
+        afterCommit(() -> redisTemplate.opsForValue().set(dedupKey, String.valueOf(saved.getId()), DEDUP_TTL));
+        MessageResponse response = withClientMessageId(toResponses(roomId, List.of(saved)).getFirst(), command.clientMessageId());
         realtime.toChannel(channelId, "MESSAGE_CREATED", response);
         memberRepository.findByChannelIdAndStatusIn(channelId, List.of(ChannelMemberStatus.JOINED)).stream().filter(m -> !m.getAccountId().equals(accountId)).forEach(m -> {
             if (m.getHiddenAt() != null) {
@@ -390,7 +398,9 @@ public class ChatService implements ChatUseCase {
         long lastRead = me == null || me.getLastReadMessageId() == null ? 0L : me.getLastReadMessageId();
         long unread = me != null && me.getStatus() == ChannelMemberStatus.JOINED ? messageRepository.countUnread(c.getId(), lastRead, accountId) : 0;
         MemberRef peer = c.getChannelType() != ChannelType.DIRECT ? null : Arrays.stream(c.getDmKey().split(":")).map(Long::valueOf).filter(id -> !id.equals(accountId)).findFirst().map(id -> access.memberRef(c.getRoomId(), id)).orElse(null);
-        return new ChannelResponse(c.getId(), c.getRoomId(), c.getChannelType(), c.getName(), c.getIsDefault(), c.getCreatorAccountId(), me == null ? "NONE" : me.getStatus().name(), unread, peer);
+        // API 명세: 참여하지 않은 채널은 myStatus=NONE (나갔거나 내보내진 경우 포함)
+        boolean participating = me != null && (me.getStatus() == ChannelMemberStatus.JOINED || me.getStatus() == ChannelMemberStatus.INVITED);
+        return new ChannelResponse(c.getId(), c.getRoomId(), c.getChannelType(), c.getName(), c.getIsDefault(), c.getCreatorAccountId(), participating ? me.getStatus().name() : "NONE", unread, peer);
     }
 
     private List<ChannelMemberResponse> memberResponses(Long roomId, Long channelId) {
@@ -410,6 +420,23 @@ public class ChatService implements ChatUseCase {
             return new MessageResponse(m.getId(), m.getChannelId(), m.getMessageType(), refs.get(m.getSenderAccountId()), deleted ? null : m.getContent(),
                     deleted ? List.of() : fileAttachSupport.responses(files.getOrDefault(m.getId(), List.of())), m.getEditedAt() != null, deleted, m.getCreatedAt(), null);
         }).toList();
+    }
+
+    private MessageResponse withClientMessageId(MessageResponse r, String clientMessageId) {
+        return new MessageResponse(r.messageId(), r.channelId(), r.messageType(), r.sender(), r.content(), r.files(), r.edited(), r.deleted(), r.createdAt(), clientMessageId);
+    }
+
+    private void afterCommit(Runnable action) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            action.run();
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                action.run();
+            }
+        });
     }
 
     private void requireUniqueName(Long roomId, String name) {

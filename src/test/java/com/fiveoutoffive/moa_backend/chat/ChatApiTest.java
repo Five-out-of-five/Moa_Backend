@@ -6,6 +6,7 @@ import com.fiveoutoffive.moa_backend.support.Be2ApiTestSupport;
 import java.nio.charset.StandardCharsets;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import java.util.List;
 import org.springframework.http.HttpMethod;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
@@ -42,6 +43,47 @@ class ChatApiTest extends Be2ApiTestSupport {
         send(owner, HttpMethod.DELETE, channels + "/" + channelId, "{\"confirmName\":\"빈채널\"}").ok();
 
         get(owner, channels + "/" + channelId).fails(404, "CHANNEL_NOT_FOUND");
+    }
+
+    @Test
+    void 공개_채널에서_나가면_myStatus_는_NONE() throws Exception {
+        Member owner = newMember("채널방장");
+        Member member = newMember("나가는멤버");
+        Long roomId = newRoom(owner, member);
+        String channels = "/rooms/" + roomId + "/channels";
+        Long channelId = post(owner, channels, "{\"name\":\"공개\",\"channelType\":\"PUBLIC\"}").ok().id("$.data.channelId");
+        post(member, channels + "/" + channelId + "/join").ok();
+
+        post(member, channels + "/" + channelId + "/leave").ok();
+
+        List<String> status = get(member, channels).ok().read("$.data[?(@.channelId == " + channelId + ")].myStatus");
+        assertThat(status).containsExactly("NONE");
+    }
+
+    @Test
+    void 같은_clientMessageId_로_다시_보내면_같은_메시지를_돌려준다() throws Exception {
+        Member owner = newMember("채널방장");
+        Long roomId = newRoom(owner);
+        String channels = "/rooms/" + roomId + "/channels";
+        Long channelId = post(owner, channels, "{\"name\":\"재전송\",\"channelType\":\"PUBLIC\"}").ok().id("$.data.channelId");
+        String body = "{\"content\":\"한 번만\",\"clientMessageId\":\"retry-1\"}";
+
+        Response first = post(owner, channels + "/" + channelId + "/messages", body).ok();
+        Response second = post(owner, channels + "/" + channelId + "/messages", body).ok();
+
+        assertThat(second.id("$.data.messageId")).isEqualTo(first.id("$.data.messageId"));
+        assertThat(second.<String>read("$.data.clientMessageId")).isEqualTo("retry-1");
+    }
+
+    @Test
+    void 메시지_첨부가_5개를_넘으면_명세_코드로_거절한다() throws Exception {
+        Member owner = newMember("채널방장");
+        Long roomId = newRoom(owner);
+        String channels = "/rooms/" + roomId + "/channels";
+        Long channelId = post(owner, channels, "{\"name\":\"첨부\",\"channelType\":\"PUBLIC\"}").ok().id("$.data.channelId");
+
+        post(owner, channels + "/" + channelId + "/messages", "{\"fileIds\":[1,2,3,4,5,6],\"clientMessageId\":\"" + UUID.randomUUID() + "\"}")
+                .fails(409, "FILE_ATTACHMENT_LIMIT_EXCEEDED");
     }
 
     private Long uploadChatFile(Member who, Long roomId) throws Exception {

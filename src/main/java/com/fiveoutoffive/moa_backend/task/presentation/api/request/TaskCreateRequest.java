@@ -16,7 +16,7 @@ public record TaskCreateRequest(
         TaskPriority priority,
         Long sourceCardId,
         Long sourceVoteId,
-        @Size(max=5) List<Long> fileIds
+        List<Long> fileIds
 ) {
 
     public TaskCreateCommand toCommand() {
