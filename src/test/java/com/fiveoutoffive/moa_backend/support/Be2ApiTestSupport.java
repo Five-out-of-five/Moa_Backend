@@ -185,4 +185,25 @@ public abstract class Be2ApiTestSupport {
             return this;
         }
     }
+
+    /** 요청 여러 개를 최대한 같은 순간에 보내고 상태 코드를 순서대로 모은다(동시성 테스트용). */
+    @SafeVarargs
+    protected final List<Integer> sendTogether(java.util.concurrent.Callable<Response>... calls) throws Exception {
+        java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(calls.length);
+        java.util.concurrent.CountDownLatch go = new java.util.concurrent.CountDownLatch(1);
+        try {
+            List<java.util.concurrent.Future<Response>> futures = new java.util.ArrayList<>();
+            for (java.util.concurrent.Callable<Response> call : calls) {
+                futures.add(pool.submit(() -> { go.await(); return call.call(); }));
+            }
+            go.countDown();
+            List<Integer> statuses = new java.util.ArrayList<>();
+            for (java.util.concurrent.Future<Response> f : futures) {
+                statuses.add(f.get(20, java.util.concurrent.TimeUnit.SECONDS).status());
+            }
+            return statuses;
+        } finally {
+            pool.shutdownNow();
+        }
+    }
 }

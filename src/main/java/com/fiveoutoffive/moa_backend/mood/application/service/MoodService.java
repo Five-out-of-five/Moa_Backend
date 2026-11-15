@@ -34,9 +34,8 @@ public class MoodService implements MoodUseCase {
     public MoodResponse upsertMine(Long accountId, Long roomId, MoodUpsertCommand command) {
         access.requireMember(roomId, accountId);
         LocalDate today = KstTime.todayKst();
-        MoodStatus saved = repository.save(repository.findByRoomIdAndAccountIdAndRecordedDate(roomId, accountId, today)
-                .map(found -> found.toBuilder().mood(command.mood()).comment(command.comment()).build())
-                .orElseGet(() -> MoodStatus.builder().roomId(roomId).accountId(accountId).mood(command.mood()).comment(command.comment()).recordedDate(today).build()));
+        // 오늘 첫 기분을 빠르게 두 번 바꿔도(요청이 동시에 와도) 500 없이 한 건만 남도록 한 번에 넣거나 바꾼다.
+        MoodStatus saved = repository.upsert(roomId, accountId, command.mood(), command.comment(), today, KstTime.nowUtc());
         MoodResponse response = new MoodResponse(accountId, saved.getMood(), saved.getComment(), saved.getRecordedDate(), saved.getUpdatedAt());
         realtime.toRoom(roomId, "MOOD_UPDATED", response, accountId);
         return response;

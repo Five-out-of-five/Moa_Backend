@@ -69,4 +69,17 @@ class MoodApiTest extends Be2ApiTestSupport {
         put(owner, "/rooms/" + roomId + "/moods/me", """
                 {"mood":"GOOD","comment":"%s"}""".formatted("가".repeat(51))).fails(400, "COMMON_INVALID_INPUT");
     }
+
+    @Test
+    @DisplayName("오늘 첫 기분을 동시에 두 번 보내도 둘 다 성공하고 한 건만 남는다")
+    void firstMoodTwiceTogether() throws Exception {
+        Member owner = newMember("방장");
+        Long roomId = newRoom(owner);
+        String path = "/rooms/" + roomId + "/moods/me";
+
+        List<Integer> statuses = sendTogether(() -> put(owner, path, "{\"mood\":\"GOOD\",\"comment\":\"a\"}"), () -> put(owner, path, "{\"mood\":\"TIRED\",\"comment\":\"b\"}"));
+
+        assertThat(statuses).containsExactly(200, 200);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM mood_status WHERE room_id = ? AND account_id = ?", Integer.class, roomId, owner.id())).isEqualTo(1);
+    }
 }

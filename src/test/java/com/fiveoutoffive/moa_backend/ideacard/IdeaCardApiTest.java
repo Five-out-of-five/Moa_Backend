@@ -295,6 +295,59 @@ class IdeaCardApiTest extends Be2ApiTestSupport {
         post(member, cards + "/" + cardId + "/comments", "{\"content\":\"%s\"}".formatted("가".repeat(501))).fails(400, "COMMON_INVALID_INPUT");
     }
 
+    /** 요청 여러 개를 최대한 같은 순간에 보내고 상태 코드를 모은다. */
+    @SafeVarargs
+    private List<Integer> concurrently(java.util.concurrent.Callable<Response>... calls) throws Exception {
+        java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(calls.length);
+        java.util.concurrent.CountDownLatch go = new java.util.concurrent.CountDownLatch(1);
+        try {
+            List<java.util.concurrent.Future<Response>> futures = new java.util.ArrayList<>();
+            for (java.util.concurrent.Callable<Response> call : calls) {
+                futures.add(pool.submit(() -> { go.await(); return call.call(); }));
+            }
+            go.countDown();
+            List<Integer> statuses = new java.util.ArrayList<>();
+            for (java.util.concurrent.Future<Response> f : futures) {
+                statuses.add(f.get(20, java.util.concurrent.TimeUnit.SECONDS).status());
+            }
+            return statuses;
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    @DisplayName("같은 칸에서 여러 명이 동시에 카드를 옮겨도 500 이 아니라 성공 또는 409 CARD_VERSION_CONFLICT")
+    void concurrentMoves() throws Exception {
+        startSession();
+        List<Long> ids = new java.util.ArrayList<>();
+        for (int i = 0; i < 4; i++) {
+            ids.add(createCard(owner, "TRY", "카드" + i));
+        }
+        for (int round = 0; round < 5; round++) {
+            long v0 = get(owner, cards + "/" + ids.get(0)).ok().id("$.data.version");
+            long v1 = get(owner, cards + "/" + ids.get(1)).ok().id("$.data.version");
+            List<Integer> statuses = concurrently(
+                    () -> patch(owner, cards + "/" + ids.get(0) + "/position", "{\"cardType\":\"TRY\",\"toIndex\":3,\"version\":" + v0 + "}"),
+                    () -> patch(member, cards + "/" + ids.get(1) + "/position", "{\"cardType\":\"TRY\",\"toIndex\":0,\"version\":" + v1 + "}"));
+            assertThat(statuses).allMatch(code -> code == 200 || code == 409);
+        }
+    }
+
+    @Test
+    @DisplayName("같은 이모지를 동시에 두 번 눌러도 둘 다 성공하고 리액션·알림은 1건")
+    void concurrentSameReaction() throws Exception {
+        startSession();
+        Long cardId = createCard(owner, "KEEP", "연타 카드");
+        String path = cards + "/" + cardId + "/reactions/FIRE";
+
+        List<Integer> statuses = concurrently(() -> put(member, path, null), () -> put(member, path, null));
+
+        assertThat(statuses).containsExactly(200, 200);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM card_reaction WHERE card_id = ? AND emoji = 'FIRE'", Integer.class, cardId)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM notification WHERE owner_account_id = ? AND notification_type = 'CARD_REACTED' AND target_id = ?", Integer.class, owner.id(), cardId)).isEqualTo(1);
+    }
+
     @Nested
     @DisplayName("마감된 회차의 카드")
     class ClosedSession {

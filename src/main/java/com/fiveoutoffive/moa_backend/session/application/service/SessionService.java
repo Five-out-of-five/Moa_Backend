@@ -1,5 +1,6 @@
 package com.fiveoutoffive.moa_backend.session.application.service;
 
+import org.springframework.dao.DataIntegrityViolationException;
 import com.fiveoutoffive.moa_backend.global.common.api.response.PageResponse;
 import com.fiveoutoffive.moa_backend.global.exception.BusinessException;
 import com.fiveoutoffive.moa_backend.global.util.KstTime;
@@ -45,8 +46,14 @@ public class SessionService implements SessionUseCase {
         if (deadline != null && deadline.isBefore(KstTime.nowUtc())) {
             throw new BusinessException(SessionErrorCode.SESSION_DEADLINE_IN_PAST);
         }
-        BoardSession saved = repository.save(BoardSession.builder().roomId(roomId).sessionNo(repository.findMaxSessionNo(roomId) + 1)
-                .title(command.title()).status(SessionStatus.IN_PROGRESS).deadlineAt(deadline).startedByAccountId(accountId).startedAt(KstTime.nowUtc()).build());
+        BoardSession saved;
+        try {
+            saved = repository.save(BoardSession.builder().roomId(roomId).sessionNo(repository.findMaxSessionNo(roomId) + 1)
+                    .title(command.title()).status(SessionStatus.IN_PROGRESS).deadlineAt(deadline).startedByAccountId(accountId).startedAt(KstTime.nowUtc()).build());
+        } catch (DataIntegrityViolationException e) {
+            // 두 멤버가 동시에 시작하면 DB 유니크 제약(방마다 진행 중 1개, 회차 번호)이 늦은 쪽을 막는다. 500 대신 명세의 409 로 답한다.
+            throw new BusinessException(SessionErrorCode.SESSION_ALREADY_IN_PROGRESS);
+        }
         SessionResponse response = toResponse(saved, false);
         notificationSender.send(roomId, accountId, NotificationType.SESSION_STARTED, access.activeMemberIds(roomId), "새 회차가 시작되었습니다", saved.getTitle(), "SESSION", saved.getId());
         realtime.toRoom(roomId, "SESSION_STARTED", response, accountId);
@@ -67,7 +74,8 @@ public class SessionService implements SessionUseCase {
         if (session.getStatus() == SessionStatus.CLOSED) {
             throw new BusinessException(SessionErrorCode.SESSION_ALREADY_CLOSED);
         }
-        return toResponse(closer.close(session, accountId), false);
+        BoardSession closed = closer.close(session, accountId).orElseThrow(() -> new BusinessException(SessionErrorCode.SESSION_ALREADY_CLOSED));
+        return toResponse(closed, false);
     }
 
     @Transactional(readOnly = true)

@@ -26,4 +26,7 @@ public interface BoardSessionRepository {
     List<BoardSession> findByIdIn(Collection<Long> ids);
 
     int findMaxSessionNo(@Param("roomId") Long roomId);
+
+    /** 진행 중인 회차만 마감한다. 실제로 마감했으면 true(동시 마감에서는 한쪽만 true). */
+    boolean closeIfInProgress(Long id, LocalDateTime closedAt, Long closedBy);
 }

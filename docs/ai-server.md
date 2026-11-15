@@ -93,7 +93,7 @@ POST 라서 브라우저 `EventSource` 는 쓸 수 없다. `fetch` 의 `response
 - 순서는 AI 서버가 보낸 그대로라 보통 `delta…` → `references` → `done` 이다. 순서에 기대지 말고 이벤트 이름으로 처리한다.
 - `PARTIAL`: 답변 도중 AI 서버와 연결이 끊겼다(응답 대기 30초 초과 등). 받은 데까지 저장되어 있으니 "답변이 중간에 끊겼어요"와 재시도를 안내한다.
 - `error`: 스트림은 열렸지만 답변이 한 글자도 오기 전에 AI 서버가 실패했다. 대화는 `FAILED` 로 저장된다.
-- 사용자가 중간에 끊으면(`AbortController`) 서버는 남은 이벤트를 보내지 않고 `PARTIAL` 로 저장한다(답변이 한 글자도 없었으면 `FAILED`). AI 서버의 답변은 끝까지 받아 저장하므로 이력에서 전체 답변을 볼 수 있다.
+- 사용자가 중간에 끊으면(`AbortController`) 서버는 남은 이벤트를 보내지 않고, 끊기 전까지 보낸 답만 `PARTIAL` 로 저장한다(보낸 글자가 없으면 `FAILED`). 이력에도 화면에서 본 데까지만 남는다.
 - 한도는 `COMPLETED`·`PARTIAL` 일 때만 1회 차감한다. 시작 전 실패와 `error` 는 차감하지 않는다.
 - 시간 제한: 스트림 전체 120초, AI 서버 응답 대기 30초.
 
@@ -135,4 +135,4 @@ data:{"status":"PARTIAL","messageId":3}
 
 `GET /api/v1/rooms/{roomId}/ai/assistant/messages?before={messageId}&size=20` → `{ items[], hasNext, nextCursor }`, 질문한 본인 것만 최신순. 다음 페이지는 `before=nextCursor`(그보다 오래된 것, `size` 최대 100).
 항목: `messageId`, `asker`(MemberRef), `question`, `answer`, `status`(`COMPLETED`/`PARTIAL`/`FAILED`), `references`, `createdAt`.
-`references` 는 지금 JSON **문자열**(없으면 `null`)이라 화면에서 `JSON.parse` 해서 쓴다.
+`references` 는 질문 스트림의 `references` 이벤트와 같은 **객체** `{ "cards": [...], "tasks": [...], "votes": [...] }` 다(없으면 `null`). `JSON.parse` 하지 않고 그대로 쓴다.

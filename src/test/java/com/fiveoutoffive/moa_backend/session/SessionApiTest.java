@@ -113,4 +113,52 @@ class SessionApiTest extends Be2ApiTestSupport {
         get(owner, "/rooms/" + roomId + "/sessions/" + otherSession).fails(404, "SESSION_NOT_FOUND");
         post(owner, "/rooms/" + roomId + "/sessions/" + otherSession + "/close").fails(404, "SESSION_NOT_FOUND");
     }
+
+    /** 두 요청을 최대한 같은 순간에 보내고 상태 코드를 모은다. */
+    private List<Integer> concurrently(java.util.concurrent.Callable<Response> a, java.util.concurrent.Callable<Response> b) throws Exception {
+        java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(2);
+        java.util.concurrent.CountDownLatch go = new java.util.concurrent.CountDownLatch(1);
+        try {
+            List<java.util.concurrent.Future<Response>> futures = List.of(
+                    pool.submit(() -> { go.await(); return a.call(); }),
+                    pool.submit(() -> { go.await(); return b.call(); }));
+            go.countDown();
+            List<Integer> statuses = new java.util.ArrayList<>();
+            for (java.util.concurrent.Future<Response> f : futures) {
+                statuses.add(f.get(20, java.util.concurrent.TimeUnit.SECONDS).status());
+            }
+            return statuses;
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    @DisplayName("두 멤버가 동시에 회차를 시작하면 하나만 성공하고 나머지는 500 이 아니라 409")
+    void concurrentStart() throws Exception {
+        Member owner = newMember("방장");
+        Member member = newMember("멤버");
+        Long roomId = newRoom(owner, member);
+        String path = "/rooms/" + roomId + "/sessions";
+
+        List<Integer> statuses = concurrently(() -> post(owner, path, "{\"title\":\"A\"}"), () -> post(member, path, "{\"title\":\"B\"}"));
+
+        assertThat(statuses).containsExactlyInAnyOrder(200, 409);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM board_session WHERE room_id = ? AND status = 'IN_PROGRESS'", Integer.class, roomId)).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("두 멤버가 동시에 마감하면 한 번만 마감되고(늦은 쪽 409), 마감 후속 처리도 한 번만 한다")
+    void concurrentClose() throws Exception {
+        Member owner = newMember("방장");
+        Member member = newMember("멤버");
+        Long roomId = newRoom(owner, member);
+        String path = "/rooms/" + roomId + "/sessions";
+        Long sessionId = post(owner, path, "{\"title\":\"회차\"}").ok().id("$.data.sessionId");
+
+        List<Integer> statuses = concurrently(() -> post(owner, path + "/" + sessionId + "/close"), () -> post(member, path + "/" + sessionId + "/close"));
+
+        assertThat(statuses).containsExactlyInAnyOrder(200, 409);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM board_event WHERE room_id = ? AND event_type = 'SESSION_CLOSED' AND target_id = ?", Integer.class, roomId, sessionId)).isEqualTo(1);
+    }
 }

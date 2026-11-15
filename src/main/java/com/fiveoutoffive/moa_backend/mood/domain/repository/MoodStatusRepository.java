@@ -19,4 +19,7 @@ public interface MoodStatusRepository {
     List<MoodStatus> findByRoomIdAndRecordedDateBetween(Long roomId, LocalDate from, LocalDate to);
 
     Optional<MoodStatus> findFirstByRoomIdAndAccountIdOrderByRecordedDateDesc(Long roomId, Long accountId);
+
+    /** 그날 기분을 넣거나 바꾸고, 저장된 값을 돌려준다. */
+    MoodStatus upsert(Long roomId, Long accountId, com.fiveoutoffive.moa_backend.mood.domain.model.Mood mood, String comment, LocalDate date, java.time.LocalDateTime now);
 }

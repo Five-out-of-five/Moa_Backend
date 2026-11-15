@@ -32,6 +32,7 @@ import com.fiveoutoffive.moa_backend.mediation.exception.MediationErrorCode;
 import com.fiveoutoffive.moa_backend.room.application.service.RoomAccessService;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -76,7 +77,7 @@ public class MediationService implements MediationUseCase {
     @Override
     public ConflictSummaryResponse dismiss(Long accountId, Long roomId, Long conflictId) {
         access.requireMember(roomId, accountId);
-        CardConflict c = find(roomId, conflictId);
+        CardConflict c = findForUpdate(roomId, conflictId);
         if (c.getStatus() == ConflictStatus.DISMISSED) {
             throw new BusinessException(MediationErrorCode.CONFLICT_ALREADY_DISMISSED);
         }
@@ -96,13 +97,23 @@ public class MediationService implements MediationUseCase {
         access.requireMember(roomId, accountId);
         requireWidget(roomId);
         CardConflict c = requireDraftable(find(roomId, conflictId));
+        // 내 초안이 이미 열려 있으면 AI 를 다시 부르지 않고 그 초안을 돌려준다(만들기 연타, 재요청).
+        Optional<CompromiseDraft> open = myOpenDraft(conflictId, accountId);
+        if (open.isPresent()) {
+            return toResponse(open.get());
+        }
         IdeaCard a = card(roomId, c.getCardAId());
         IdeaCard b = card(roomId, c.getCardBId());
         DraftCardType type = a.getCardType() == CardType.AGENDA || b.getCardType() == CardType.AGENDA ? DraftCardType.AGENDA : DraftCardType.TRY;
         AiCompromisePayload payload = aiGateway.call(roomId, accountId, AiFeature.COMPROMISE, "/v1/compromises",
                 Map.of("cardType", type, "cardA", Map.of("title", a.getTitle(), "content", String.valueOf(a.getContent())), "cardB", Map.of("title", b.getTitle(), "content", String.valueOf(b.getContent()))), AiCompromisePayload.class);
         CompromiseDraft draft = transactionTemplate.execute(tx -> {
-            CardConflict latest = requireDraftable(find(roomId, conflictId));
+            CardConflict latest = requireDraftable(findForUpdate(roomId, conflictId));
+            // AI 를 기다리는 사이 같은 요청이 먼저 초안을 만들었으면 그것을 돌려준다(초안이 2개 생기지 않게).
+            Optional<CompromiseDraft> made = myOpenDraft(conflictId, accountId);
+            if (made.isPresent()) {
+                return made.get();
+            }
             CompromiseDraft saved = draftRepository.save(CompromiseDraft.builder().conflictId(conflictId).requestedByAccountId(accountId).cardType(type).title(payload.title()).content(payload.content()).status(DraftStatus.DRAFT).build());
             conflictRepository.save(latest.toBuilder().status(ConflictStatus.PROPOSED).build());
             return saved;
@@ -124,7 +135,8 @@ public class MediationService implements MediationUseCase {
     @Override
     public IdeaCardDetailResponse adopt(Long accountId, Long roomId, Long conflictId, Long draftId, DraftAdoptCommand command) {
         access.requireMember(roomId, accountId);
-        CardConflict c = find(roomId, conflictId);
+        // 충돌 행을 잠그고 시작한다. 채택 버튼 연타나 두 사람의 동시 채택이 차례로 처리되어, 늦은 쪽은 아래 검사에서 409 가 된다(카드 2장 방지).
+        CardConflict c = findForUpdate(roomId, conflictId);
         if (c.getAdoptedCardId() != null) {
             throw new BusinessException(MediationErrorCode.CONFLICT_ALREADY_ADOPTED);
         }
@@ -142,8 +154,12 @@ public class MediationService implements MediationUseCase {
     @Override
     public ConflictSummaryResponse discard(Long accountId, Long roomId, Long conflictId, Long draftId) {
         access.requireMember(roomId, accountId);
-        CardConflict c = find(roomId, conflictId);
+        CardConflict c = findForUpdate(roomId, conflictId);
         draftRepository.save(myOpenDraft(conflictId, draftId, accountId).toBuilder().status(DraftStatus.DISCARDED).build());
+        // 절충안 진행 중(PROPOSED)이고 채택 전일 때만 다시 감지 상태로 돌린다. 다른 멤버가 해제했거나 이미 채택된 충돌은 그대로 둔다.
+        if (c.getStatus() != ConflictStatus.PROPOSED || c.getAdoptedCardId() != null) {
+            return summary(c);
+        }
         return summary(conflictRepository.save(c.toBuilder().status(ConflictStatus.REDETECTED).build()));
     }
 
@@ -160,6 +176,14 @@ public class MediationService implements MediationUseCase {
         if (!widgetRepository.existsByRoomIdAndWidgetType(roomId, WidgetType.MEDIATION)) {
             throw new BusinessException(MediationErrorCode.MEDIATION_WIDGET_REQUIRED);
         }
+    }
+
+    private Optional<CompromiseDraft> myOpenDraft(Long conflictId, Long accountId) {
+        return draftRepository.findByConflictIdAndRequestedByAccountIdAndStatus(conflictId, accountId, DraftStatus.DRAFT).stream().findFirst();
+    }
+
+    private CardConflict findForUpdate(Long roomId, Long conflictId) {
+        return conflictRepository.findByIdForUpdate(conflictId).filter(c -> c.getRoomId().equals(roomId)).orElseThrow(() -> new BusinessException(MediationErrorCode.CONFLICT_NOT_FOUND));
     }
 
     private CardConflict find(Long roomId, Long conflictId) {

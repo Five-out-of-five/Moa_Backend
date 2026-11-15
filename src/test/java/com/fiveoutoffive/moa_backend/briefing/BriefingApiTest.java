@@ -100,4 +100,31 @@ class BriefingApiTest extends Be2ApiTestSupport {
         assertThat(checkedAt).isEqualTo(1L);
         assertThat(get(owner, briefing).ok().<List<Object>>read("$.data.teamNews")).isEmpty();
     }
+
+    @Test
+    @DisplayName("'모두 확인'을 한 번도 안 한 멤버는 합류한 뒤의 소식만 본다(합류 1분 뒤에도 합류 전 소식은 안 나옴)")
+    void newMemberSeesOnlyAfterJoin() throws Exception {
+        Long before = card(owner, "합류 전 카드");
+        jdbc.update("UPDATE board_event SET created_at = (now() AT TIME ZONE 'UTC') - interval '2 days' WHERE room_id = ? AND target_id = ?", roomId, before);
+        Member newbie = newMember("새멤버");
+        jdbc.update("INSERT INTO room_member(room_id, account_id, role, status, nickname, joined_at) VALUES (?, ?, 'MEMBER', 'ACTIVE', ?, (now() AT TIME ZONE 'UTC') - interval '1 day')",
+                roomId, newbie.id(), newbie.name());
+        card(owner, "합류 후 카드");
+
+        Response res = get(newbie, briefing).ok();
+        assertThat(res.<Boolean>read("$.data.visible")).isTrue();
+        List<String> titles = res.read("$.data.teamNews[*].items[*].title");
+        assertThat(titles).containsExactly("합류 후 카드");
+    }
+
+    @Test
+    @DisplayName("소식 지우기를 동시에 두 번 눌러도 둘 다 성공")
+    void dismissTwiceTogether() throws Exception {
+        card(owner, "카드");
+        String path = briefing + "/dismiss";
+        String body = "{\"eventType\":\"CARD_CREATED\"}";
+
+        assertThat(sendTogether(() -> post(member, path, body), () -> post(member, path, body))).containsExactly(200, 200);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM briefing_dismissal WHERE room_id = ? AND account_id = ?", Integer.class, roomId, member.id())).isLessThanOrEqualTo(1);
+    }
 }

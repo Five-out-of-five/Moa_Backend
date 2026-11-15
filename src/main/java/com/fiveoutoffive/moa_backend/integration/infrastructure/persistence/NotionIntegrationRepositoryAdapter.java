@@ -35,4 +35,9 @@ public class NotionIntegrationRepositoryAdapter implements NotionIntegrationRepo
     public void deleteById(Long id) {
         springDataRepository.deleteById(id);
     }
+
+    @Override
+    public void lockExport(Long integrationId) {
+        springDataRepository.lockExport(integrationId);
+    }
 }

@@ -13,6 +13,9 @@ public interface CardConflictRepository {
 
     Optional<CardConflict> findById(Long id);
 
+    /** 행 잠금(트랜잭션 끝까지)을 걸고 읽는다. 트랜잭션 안에서만 쓴다. */
+    Optional<CardConflict> findByIdForUpdate(Long id);
+
     List<CardConflict> findByRoomId(Long roomId);
 
     Optional<CardConflict> findByCardAIdAndCardBId(Long cardAId, Long cardBId);

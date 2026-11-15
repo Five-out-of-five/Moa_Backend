@@ -57,4 +57,9 @@ public class BoardSessionRepositoryAdapter implements BoardSessionRepository {
     public int findMaxSessionNo(@Param("roomId") Long roomId) {
         return springDataRepository.findMaxSessionNo(roomId);
     }
+
+    @Override
+    public boolean closeIfInProgress(Long id, LocalDateTime closedAt, Long closedBy) {
+        return springDataRepository.closeIf(id, closedAt, closedBy, SessionStatus.CLOSED, SessionStatus.IN_PROGRESS) == 1;
+    }
 }

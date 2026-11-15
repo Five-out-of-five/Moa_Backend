@@ -1,5 +1,6 @@
 package com.fiveoutoffive.moa_backend.dashboard.application.service;
 
+import org.springframework.dao.DataIntegrityViolationException;
 import com.fiveoutoffive.moa_backend.ai.application.service.AiGateway;
 import com.fiveoutoffive.moa_backend.ai.domain.model.AiFeature;
 import com.fiveoutoffive.moa_backend.dashboard.application.command.WidgetPlacement;
@@ -73,7 +74,12 @@ public class DashboardService implements DashboardUseCase {
         List<WidgetPlacement> all = new ArrayList<>(currentPlacements(roomId));
         all.add(placement);
         validate(all);
-        save(roomId, accountId, placement);
+        try {
+            save(roomId, accountId, placement);
+        } catch (DataIntegrityViolationException e) {
+            // 두 사람이 같은 위젯을 동시에 추가하면 DB 유니크 제약(방마다 종류 1개)이 늦은 쪽을 막는다. 500 대신 409.
+            throw new BusinessException(DashboardErrorCode.DASHBOARD_WIDGET_ALREADY_EXISTS);
+        }
         return changed(roomId, accountId);
     }
 

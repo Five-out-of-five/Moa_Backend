@@ -1,6 +1,7 @@
 package com.fiveoutoffive.moa_backend.ai;
 
 import com.fiveoutoffive.moa_backend.ai.application.result.AiEmbeddingPayload;
+import com.fiveoutoffive.moa_backend.ai.application.result.AiSummaryPayload;
 import com.fiveoutoffive.moa_backend.ai.application.result.AiTonePayload;
 import com.fiveoutoffive.moa_backend.ai.application.service.AiGateway;
 import com.fiveoutoffive.moa_backend.ai.domain.model.AiFeature;
@@ -290,5 +291,150 @@ class AiStabilityTest extends Be2ApiTestSupport {
 
         assertThat(res.status()).isEqualTo(404);
         assertThat(res.body()).doesNotContain("남의 비밀 카드");
+    }
+
+    // ---------------------------------------------------------------- 리뷰 후속 (C-1, H-3)
+
+    @Test
+    @DisplayName("요약: ALL 범위에 다른 방 회차 ID 를 보내도 요약에 연결되지 않고, 이미 잘못 연결된 회차도 응답에 보이지 않는다")
+    void summaryIgnoresOtherRoomSessions() throws Exception {
+        doReturn(Optional.of(new AiSummaryPayload("## 주요 의견 - 요약"))).when(aiServer).post(eq("/v1/summaries"), any(), eq(AiSummaryPayload.class));
+        Member stranger = newMember("남");
+        Long otherRoom = newRoom(stranger);
+        Long otherSession = post(stranger, "/rooms/" + otherRoom + "/sessions", "{\"title\":\"남의 비밀 회차\"}").ok().id("$.data.sessionId");
+        post(stranger, "/rooms/" + otherRoom + "/sessions/" + otherSession + "/close").ok();
+        post(owner, room + "/sessions", "{\"title\":\"회차\"}").ok();
+        for (int i = 1; i <= 3; i++) {
+            post(owner, room + "/idea-cards", "{\"cardType\":\"PROBLEM\",\"title\":\"카드" + i + "\"}").ok();
+        }
+
+        Response created = post(owner, room + "/ai/summaries", "{\"scopeType\":\"ALL\",\"sessionIds\":[" + otherSession + "]}").ok();
+        Long summaryId = created.id("$.data.summaryId");
+        assertThat(created.<List<Object>>read("$.data.sessions")).isEmpty();
+        assertThat(created.body()).doesNotContain("남의 비밀 회차");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM ai_summary_session WHERE summary_id = ?", Integer.class, summaryId)).isZero();
+
+        // 수정 전에 저장된 잘못된 연결이 남아 있어도 목록 응답에는 이 방 회차만 보인다.
+        jdbc.update("INSERT INTO ai_summary_session(summary_id, session_id) VALUES (?, ?)", summaryId, otherSession);
+        Response list = get(member, room + "/ai/summaries").ok();
+        assertThat(list.body()).doesNotContain("남의 비밀 회차");
+    }
+
+    @Test
+    @DisplayName("어시스턴트: 근거 카드는 최신순, 업무는 끝나지 않은 것 먼저 최신순으로 보낸다(Python 이 앞 150개만 쓴다)")
+    @SuppressWarnings("unchecked")
+    void assistantContextIsNewestFirst() throws Exception {
+        when(aiServer.isAvailable()).thenReturn(true);
+        doAnswer(call -> {
+            ((Consumer<String>) call.getArgument(2)).accept("{\"delta\":\"답\"}");
+            return true;
+        }).when(aiServer).stream(eq("/v1/assistant/stream"), any(), any());
+        post(owner, room + "/sessions", "{\"title\":\"회차\"}").ok();
+        for (String title : List.of("오래된 카드", "중간 카드", "최신 카드")) {
+            post(owner, room + "/idea-cards", "{\"cardType\":\"TRY\",\"title\":\"" + title + "\"}").ok();
+        }
+        Long doneTask = post(owner, room + "/tasks", "{\"title\":\"끝난 최신 업무\",\"assigneeAccountId\":" + owner.id() + "}").ok().id("$.data.taskId");
+        post(owner, room + "/tasks", "{\"title\":\"진행 업무 1\",\"assigneeAccountId\":" + owner.id() + "}").ok();
+        post(owner, room + "/tasks", "{\"title\":\"진행 업무 2\",\"assigneeAccountId\":" + owner.id() + "}").ok();
+        jdbc.update("UPDATE task SET status = 'DONE' WHERE id = ?", doneTask);
+
+        post(owner, room + "/ai/assistant/messages", "{\"question\":\"최근에 뭐 했어?\"}");
+
+        org.mockito.ArgumentCaptor<Object> body = org.mockito.ArgumentCaptor.forClass(Object.class);
+        org.mockito.Mockito.verify(aiServer, org.mockito.Mockito.timeout(5000)).stream(eq("/v1/assistant/stream"), body.capture(), any());
+        java.util.Map<String, Object> context = (java.util.Map<String, Object>) ((java.util.Map<String, Object>) body.getValue()).get("context");
+        assertThat((List<java.util.Map<String, Object>>) context.get("cards")).extracting(c -> c.get("title"))
+                .containsExactly("최신 카드", "중간 카드", "오래된 카드");
+        assertThat((List<java.util.Map<String, Object>>) context.get("tasks")).extracting(t -> t.get("title"))
+                .containsExactly("진행 업무 2", "진행 업무 1", "끝난 최신 업무");
+    }
+
+    @Test
+    @DisplayName("어시스턴트 이력: references 는 문자열이 아니라 질문 스트림과 같은 객체로 준다")
+    @SuppressWarnings("unchecked")
+    void historyReferencesIsObject() throws Exception {
+        when(aiServer.isAvailable()).thenReturn(true);
+        doAnswer(call -> {
+            Consumer<String> onLine = (Consumer<String>) call.getArgument(2);
+            onLine.accept("{\"delta\":\"답\"}");
+            onLine.accept("{\"references\":{\"cards\":[{\"id\":7,\"title\":\"근거 카드\"}],\"tasks\":[],\"votes\":[]}}");
+            return true;
+        }).when(aiServer).stream(eq("/v1/assistant/stream"), any(), any());
+
+        post(member, room + "/ai/assistant/messages", "{\"question\":\"근거 알려줘\"}");
+        waitUntil(() -> jdbc.queryForObject("SELECT count(*) FROM ai_assistant_message WHERE room_id = ?", Integer.class, roomId) == 1);
+
+        Response history = get(member, room + "/ai/assistant/messages").ok();
+        assertThat(history.<Integer>read("$.data.items[0].references.cards[0].id")).isEqualTo(7);
+        assertThat(history.<String>read("$.data.items[0].references.cards[0].title")).isEqualTo("근거 카드");
+        assertThat(history.<List<Object>>read("$.data.items[0].references.tasks")).isEmpty();
+    }
+
+    // ---------------------------------------------------------------- 중재 후속 (D-1, D-2, 초안 재사용)
+
+    /** 중재 위젯·회차·카드 2장·충돌 1건을 만들고 충돌 id 를 돌려준다. 절충안 스텁도 건다. */
+    private Long setUpConflict() throws Exception {
+        doReturn(Optional.of(new AiCompromisePayload("격주 회의", "두 의견 절충"))).when(aiServer).post(eq("/v1/compromises"), any(), eq(AiCompromisePayload.class));
+        post(owner, room + "/dashboard/widgets", """
+                {"widgetType":"MEDIATION","x":0,"y":12,"w":3,"h":3}""").ok();
+        post(owner, room + "/sessions", "{\"title\":\"회차\"}").ok();
+        Long a = post(owner, room + "/idea-cards", "{\"cardType\":\"AGENDA\",\"title\":\"주 1회 회의\"}").ok().id("$.data.cardId");
+        Long b = post(member, room + "/idea-cards", "{\"cardType\":\"AGENDA\",\"title\":\"회의 없애기\"}").ok().id("$.data.cardId");
+        return jdbc.queryForObject("INSERT INTO card_conflict(room_id, card_a_id, card_b_id, reason) VALUES (?, ?, ?, '반대') RETURNING id",
+                Long.class, roomId, Math.min(a, b), Math.max(a, b));
+    }
+
+    @Test
+    @DisplayName("절충안: 내 초안이 열려 있으면 다시 요청해도 AI 를 부르지 않고 같은 초안을 돌려준다")
+    void compromiseReusesOpenDraft() throws Exception {
+        Long conflictId = setUpConflict();
+        String path = room + "/conflicts/" + conflictId + "/compromise-drafts";
+
+        Long first = post(member, path).ok().id("$.data.draftId");
+        Long second = post(member, path).ok().id("$.data.draftId");
+
+        assertThat(second).isEqualTo(first);
+        org.mockito.Mockito.verify(aiServer, org.mockito.Mockito.times(1)).post(eq("/v1/compromises"), any(), eq(AiCompromisePayload.class));
+        assertThat(used("COMPROMISE")).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM compromise_draft WHERE conflict_id = ?", Integer.class, conflictId)).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("절충안: 같은 초안 채택을 동시에 두 번 눌러도 카드는 1장, 늦은 쪽은 409")
+    void adoptTwiceCreatesOneCard() throws Exception {
+        Long conflictId = setUpConflict();
+        String path = room + "/conflicts/" + conflictId + "/compromise-drafts";
+        Long draftId = post(member, path).ok().id("$.data.draftId");
+        String adopt = path + "/" + draftId + "/adopt";
+        String body = "{\"title\":\"격주 회의\",\"content\":\"두 의견 절충\"}";
+
+        java.util.concurrent.ExecutorService pool = Executors.newFixedThreadPool(2);
+        CountDownLatch go = new CountDownLatch(1);
+        List<java.util.concurrent.Future<Response>> futures = List.of(
+                pool.submit(() -> { go.await(); return post(member, adopt, body); }),
+                pool.submit(() -> { go.await(); return post(member, adopt, body); }));
+        go.countDown();
+        List<Integer> statuses = new ArrayList<>();
+        for (java.util.concurrent.Future<Response> f : futures) {
+            statuses.add(f.get(20, TimeUnit.SECONDS).status());
+        }
+        pool.shutdownNow();
+
+        assertThat(statuses).containsExactlyInAnyOrder(200, 409);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM idea_card WHERE room_id = ? AND is_ai_generated = true", Integer.class, roomId)).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("절충안: 초안을 만든 뒤 다른 멤버가 해제하면, 초안을 폐기해도 해제가 풀리지 않는다")
+    void discardKeepsDismissal() throws Exception {
+        Long conflictId = setUpConflict();
+        String path = room + "/conflicts/" + conflictId;
+        Long draftId = post(member, path + "/compromise-drafts").ok().id("$.data.draftId");
+        post(owner, path + "/dismiss").ok();
+
+        post(member, path + "/compromise-drafts/" + draftId + "/discard").ok();
+
+        assertThat(jdbc.queryForObject("SELECT status FROM card_conflict WHERE id = ?", String.class, conflictId)).isEqualTo("DISMISSED");
+        assertThat(jdbc.queryForObject("SELECT status FROM compromise_draft WHERE id = ?", String.class, draftId)).isEqualTo("DISCARDED");
     }
 }
