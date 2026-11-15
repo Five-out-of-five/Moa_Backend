@@ -437,4 +437,20 @@ class AiStabilityTest extends Be2ApiTestSupport {
         assertThat(jdbc.queryForObject("SELECT status FROM card_conflict WHERE id = ?", String.class, conflictId)).isEqualTo("DISMISSED");
         assertThat(jdbc.queryForObject("SELECT status FROM compromise_draft WHERE id = ?", String.class, draftId)).isEqualTo("DISCARDED");
     }
+
+    @Test
+    @DisplayName("임베딩: 카드를 만들 때 AI 서버가 실패해 빠진 임베딩은 회차를 마감할 때 채운다")
+    void sessionCloseFillsMissingEmbeddings() throws Exception {
+        Long sessionId = post(owner, room + "/sessions", "{\"title\":\"회차\"}").ok().id("$.data.sessionId");
+        Long cardId = post(owner, room + "/idea-cards", "{\"cardType\":\"KEEP\",\"title\":\"임베딩 빠진 카드\"}").ok().id("$.data.cardId");
+        // 카드 생성 직후의 비동기 임베딩 호출이 실패(빈 값)로 끝날 때까지 기다린다.
+        org.mockito.Mockito.verify(aiServer, org.mockito.Mockito.timeout(5000)).post(eq("/v1/embeddings"), any(), eq(AiEmbeddingPayload.class));
+        Thread.sleep(300);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM content_embedding WHERE card_id = ?", Integer.class, cardId)).isZero();
+
+        doReturn(Optional.of(embedding())).when(aiServer).post(eq("/v1/embeddings"), any(), eq(AiEmbeddingPayload.class));
+        post(owner, room + "/sessions/" + sessionId + "/close").ok();
+
+        waitUntil(() -> jdbc.queryForObject("SELECT count(*) FROM content_embedding WHERE card_id = ?", Integer.class, cardId) == 1);
+    }
 }

@@ -74,8 +74,18 @@ public class ConflictDetectionHandlers {
     @org.springframework.transaction.event.TransactionalEventListener
     public void onSessionClosed(SessionClosedEvent event) {
         try {
+            List<IdeaCard> cards = cardRepository.findBySessionIdAndDeletedAtIsNullOrderBySortOrderAsc(event.sessionId());
+            // 카드를 만들 때 AI 서버가 꺼져 있었거나 한도를 넘어 임베딩이 빠진 카드를 여기서 채운다(따로 색인 버튼이 없다).
+            // 이미 있는 임베딩은 내용 해시가 같아 AI 를 다시 부르지 않는다. 카드 하나가 실패해도 나머지는 계속한다.
+            for (IdeaCard card : cards) {
+                try {
+                    refreshEmbedding(event.roomId(), card.getId());
+                } catch (Exception e) {
+                    log.warn("[AI] 회차 마감 임베딩 채우기 실패 cardId={}: {}", card.getId(), e.getMessage());
+                }
+            }
             if (widgetRepository.existsByRoomIdAndWidgetType(event.roomId(), WidgetType.MEDIATION)) {
-                cardRepository.findBySessionIdAndDeletedAtIsNullOrderBySortOrderAsc(event.sessionId()).forEach(this::detect);
+                cards.forEach(this::detect);
             }
         } catch (Exception e) {
             log.warn("[AI] 회차 충돌 분석 실패 sessionId={}: {}", event.sessionId(), e.getMessage());
