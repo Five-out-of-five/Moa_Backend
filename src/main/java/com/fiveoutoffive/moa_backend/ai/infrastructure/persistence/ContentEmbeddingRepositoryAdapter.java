@@ -8,6 +8,7 @@ import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 @Repository
 @RequiredArgsConstructor
@@ -28,7 +29,9 @@ public class ContentEmbeddingRepositoryAdapter implements ContentEmbeddingReposi
                 .map(contentEmbeddingMapper::toDomain);
     }
 
+    // 충돌 감지 핸들러는 트랜잭션 없이 돈다. 임베딩은 따로 커밋해서 충돌 저장 실패에 휩쓸려 사라지지 않게 한다.
     @Override
+    @Transactional
     public int upsertCard(@Param("roomId") Long roomId, @Param("cardId") Long cardId, @Param("vector") String vector, @Param("model") String model, @Param("hash") String hash) {
         return springDataRepository.upsertCard(roomId, cardId, vector, model, hash);
     }

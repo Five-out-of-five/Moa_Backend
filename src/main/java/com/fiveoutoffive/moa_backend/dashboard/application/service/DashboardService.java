@@ -28,6 +28,7 @@ import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 /** 대시보드 배치. 위젯은 배치만 저장하고 카드·업무 데이터와 연결하지 않는다. */
@@ -116,7 +117,9 @@ public class DashboardService implements DashboardUseCase {
         return changed(roomId, accountId);
     }
 
+    // 저장 없이 AI 추천만 돌려준다. 클래스 트랜잭션을 끄고 호출해 AI 응답을 기다리는 동안 DB 연결을 붙잡지 않는다.
     @Override
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public LayoutRecommendResponse recommend(Long accountId, Long roomId, String purpose) {
         access.requireMember(roomId, accountId);
         LayoutRecommendResponse response = aiGateway.call(roomId, accountId, AiFeature.LAYOUT, RECOMMEND_PATH,

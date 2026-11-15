@@ -61,6 +61,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
@@ -68,6 +69,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 /** 어시스턴트·회의 요약·톤앤매너. 호출 계약은 docs/ai-server.md */
@@ -99,28 +101,41 @@ public class AiService implements AiUseCase {
     private final IdeaCardUseCase ideaCardUseCase;
     private final RoomAccessService access;
     private final tools.jackson.databind.json.JsonMapper jsonMapper;
-    private final java.util.concurrent.Executor taskExecutor;
+    private final TransactionTemplate transactionTemplate;
+    // 어시스턴트 전용 실행기(AssistantStreamExecutorConfig). 같은 타입 빈이 둘이라 필드 이름으로 골라 주입된다.
+    // 공용 taskExecutor 를 쓰면 긴 스트림이 충돌 감지·알림 같은 @Async 작업까지 막는다.
+    private final java.util.concurrent.Executor assistantStreamExecutor;
 
     @Override
     public SseEmitter ask(Long accountId, Long roomId, AssistantAskCommand command) {
         access.requireMember(roomId, accountId);
-        gateway.requireQuota(roomId, AiFeature.ASSISTANT);
-        if (!aiServerPort.isAvailable()) {
-            gateway.log(roomId, accountId, AiFeature.ASSISTANT, System.currentTimeMillis(), AiCallStatus.FAILED, "AI server unavailable");
-            throw new BusinessException(AiErrorCode.AI_UNAVAILABLE);
-        }
-        Map<String, Object> body = Map.of("roomId", roomId, "question", command.question(), "context", roomContext(roomId));
-        SseEmitter emitter = new SseEmitter(SSE_TIMEOUT_MILLIS);
-        taskExecutor.execute(() -> {
-            try {
-                streamAnswer(accountId, roomId, command.question(), body, emitter);
-            } catch (Exception e) {
-                // 어떤 실패에도 연결을 열어두지 않는다. 열려 있으면 프론트는 타임아웃까지 응답을 기다린다.
-                log.warn("[AI] 어시스턴트 스트리밍 실패 roomId={}: {}", roomId, e.getMessage());
-                emitter.complete();
+        LocalDate quotaDate = gateway.reserve(roomId, AiFeature.ASSISTANT);
+        try {
+            if (!aiServerPort.isAvailable()) {
+                gateway.log(roomId, accountId, AiFeature.ASSISTANT, System.currentTimeMillis(), AiCallStatus.FAILED, "AI server unavailable");
+                throw new BusinessException(AiErrorCode.AI_UNAVAILABLE);
             }
-        });
-        return emitter;
+            Map<String, Object> body = Map.of("roomId", roomId, "question", command.question(), "context", roomContext(roomId));
+            SseEmitter emitter = new SseEmitter(SSE_TIMEOUT_MILLIS);
+            assistantStreamExecutor.execute(() -> {
+                try {
+                    streamAnswer(accountId, roomId, command.question(), body, emitter, quotaDate);
+                } catch (Exception e) {
+                    // 어떤 실패에도 연결을 열어두지 않는다. 열려 있으면 프론트는 타임아웃까지 응답을 기다린다.
+                    log.warn("[AI] 어시스턴트 스트리밍 실패 roomId={}: {}", roomId, e.getMessage());
+                    emitter.complete();
+                }
+            });
+            return emitter;
+        } catch (RejectedExecutionException e) {
+            // 동시 스트림이 꽉 찼다. 큐에 쌓으면 사용자는 열린 스트림에서 아무것도 못 받고 기다리므로 바로 거절한다.
+            gateway.release(roomId, AiFeature.ASSISTANT, quotaDate);
+            gateway.log(roomId, accountId, AiFeature.ASSISTANT, System.currentTimeMillis(), AiCallStatus.FAILED, "assistant streams busy");
+            throw new BusinessException(AiErrorCode.AI_UNAVAILABLE);
+        } catch (RuntimeException e) {
+            gateway.release(roomId, AiFeature.ASSISTANT, quotaDate);
+            throw e;
+        }
     }
 
     @Transactional(readOnly = true)
@@ -144,7 +159,7 @@ public class AiService implements AiUseCase {
                 .map(f -> new AiQuotaResponse.Feature(f, used.getOrDefault(f, 0), quotaProperties.limitOf(f), resetAt)).toList());
     }
 
-    @Transactional
+    // 트랜잭션을 걸지 않는다. AI 응답(최대 30초)을 기다리는 동안 DB 연결을 붙잡지 않도록 저장만 짧게 묶는다.
     @Override
     public SummaryResponse createSummary(Long accountId, Long roomId, SummaryCreateCommand command) {
         access.requireMember(roomId, accountId);
@@ -158,8 +173,11 @@ public class AiService implements AiUseCase {
             throw new BusinessException(AiErrorCode.AI_NOT_ENOUGH_CARDS);
         }
         AiSummaryPayload payload = gateway.call(roomId, accountId, AiFeature.SUMMARY, "/v1/summaries", Map.of("maxLength", 1000, "cards", cards.stream().map(this::cardJson).toList()), AiSummaryPayload.class);
-        AiSummary saved = summaryRepository.save(AiSummary.builder().roomId(roomId).scopeType(command.scopeType()).content(payload.content()).requestedByAccountId(accountId).build());
-        sessionIds.forEach(id -> summarySessionRepository.save(AiSummarySession.builder().summaryId(saved.getId()).sessionId(id).build()));
+        AiSummary saved = transactionTemplate.execute(tx -> {
+            AiSummary summary = summaryRepository.save(AiSummary.builder().roomId(roomId).scopeType(command.scopeType()).content(payload.content()).requestedByAccountId(accountId).build());
+            sessionIds.forEach(id -> summarySessionRepository.save(AiSummarySession.builder().summaryId(summary.getId()).sessionId(id).build()));
+            return summary;
+        });
         return toResponse(saved);
     }
 
@@ -194,7 +212,7 @@ public class AiService implements AiUseCase {
         return card;
     }
 
-    @Transactional
+    // 저장하는 것이 없어 트랜잭션을 걸지 않는다(AI 응답을 기다리는 동안 DB 연결을 붙잡지 않게).
     @Override
     public ToneCheckResponse checkTone(Long accountId, Long roomId, ToneCheckCommand command) {
         access.requireMember(roomId, accountId);
@@ -202,10 +220,9 @@ public class AiService implements AiUseCase {
         if (mode == ToneMode.OFF || isDirect(command.channelId())) {
             return new ToneCheckResponse(false, null, mode);
         }
-        if (gateway.remaining(roomId, AiFeature.TONE) <= 0) {
-            throw new BusinessException(AiErrorCode.AI_QUOTA_EXCEEDED);
-        }
-        return gateway.callQuietly(roomId, accountId, AiFeature.TONE, "/v1/tone-checks", Map.of("text", command.text(), "toneMode", mode.name()), AiTonePayload.class)
+        // 명세: 한도 초과는 429, AI 실패는 원문 그대로 통과. 그래서 선점(429)과 호출(실패 시 반납)을 나눠 부른다.
+        LocalDate quotaDate = gateway.reserve(roomId, AiFeature.TONE);
+        return gateway.callReserved(roomId, accountId, AiFeature.TONE, quotaDate, "/v1/tone-checks", Map.of("text", command.text(), "toneMode", mode.name()), AiTonePayload.class)
                 .map(p -> new ToneCheckResponse(p.needsChange(), p.suggestion(), mode))
                 .orElse(new ToneCheckResponse(false, null, mode));
     }
@@ -214,7 +231,7 @@ public class AiService implements AiUseCase {
         return channelId != null && channelRepository.findById(channelId).filter(c -> c.getChannelType() == ChannelType.DIRECT).isPresent();
     }
 
-    private void streamAnswer(Long accountId, Long roomId, String question, Map<String, Object> body, SseEmitter emitter) {
+    private void streamAnswer(Long accountId, Long roomId, String question, Map<String, Object> body, SseEmitter emitter, LocalDate quotaDate) {
         StringBuilder answer = new StringBuilder();
         AtomicBoolean clientGone = new AtomicBoolean(false);
         String[] references = {null};
@@ -231,10 +248,13 @@ public class AiService implements AiUseCase {
             send(emitter, "delta", Map.of("text", text), clientGone);
         });
         AssistantMessageStatus status = completed && !clientGone.get() ? AssistantMessageStatus.COMPLETED : answer.isEmpty() ? AssistantMessageStatus.FAILED : AssistantMessageStatus.PARTIAL;
+        // 한도는 질문 시점에 선점했다. 답이 하나도 없으면(FAILED) 돌려준다. COMPLETED·PARTIAL 만 차감(docs/ai-server.md).
+        if (status == AssistantMessageStatus.FAILED) {
+            gateway.release(roomId, AiFeature.ASSISTANT, quotaDate);
+        }
         AiAssistantMessage saved = assistantRepository.save(AiAssistantMessage.builder().roomId(roomId).accountId(accountId).question(question).answer(answer.toString()).status(status).referenceJson(references[0]).build());
         gateway.log(roomId, accountId, AiFeature.ASSISTANT, startedAt, status == AssistantMessageStatus.FAILED ? AiCallStatus.FAILED : AiCallStatus.SUCCESS, null);
         if (status != AssistantMessageStatus.FAILED) {
-            gateway.consume(roomId, AiFeature.ASSISTANT);
             send(emitter, "done", Map.of("messageId", saved.getId(), "status", status), clientGone);
         } else {
             send(emitter, "error", Map.of("code", AiErrorCode.AI_UNAVAILABLE.getCode()), clientGone);

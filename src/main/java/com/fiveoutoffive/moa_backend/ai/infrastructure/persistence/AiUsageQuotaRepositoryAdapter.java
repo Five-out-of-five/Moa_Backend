@@ -8,8 +8,9 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 
 @Repository
 @RequiredArgsConstructor
@@ -40,8 +41,16 @@ public class AiUsageQuotaRepositoryAdapter implements AiUsageQuotaRepository {
         return springDataRepository.findByRoomIdAndQuotaDate(roomId, quotaDate).stream().map(aiUsageQuotaMapper::toDomain).toList();
     }
 
+    // 선점과 반납은 바깥 트랜잭션과 따로 바로 커밋한다. 다른 요청이 곧바로 늘어난 사용량을 봐야 한다.
     @Override
-    public int increment(@Param("roomId") Long roomId, @Param("feature") String feature, @Param("date") LocalDate date) {
-        return springDataRepository.increment(roomId, feature, date);
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public boolean tryReserve(Long roomId, AiFeature feature, LocalDate date, int limit) {
+        return springDataRepository.tryReserve(roomId, feature.name(), date, limit) > 0;
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void release(Long roomId, AiFeature feature, LocalDate date) {
+        springDataRepository.release(roomId, feature.name(), date);
     }
 }

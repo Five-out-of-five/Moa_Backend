@@ -28,6 +28,10 @@ Python 저장소는 `Five-out-of-five/Moa_Python` 이다.
 
 새 AI 기능은 `AiGateway` 를 쓴다: 사용자가 결과를 기다리면 `call`, 실패해도 흐름을 막지 않으면 `callQuietly`. 한도(`app.ai.quota`)와 `ai_call_log` 기록이 자동으로 처리된다.
 
+- 한도는 호출 전에 1회를 원자적으로 선점하고, 호출이 실패하면 반납한다. 같은 방의 동시 요청도 한도를 넘지 않고, 결과적으로 성공한 호출만 차감된다.
+- AI 호출은 DB 트랜잭션 밖에서 한다. 응답을 기다리는 동안(최대 30초) DB 연결을 붙잡지 않도록, 읽기 → AI 호출 → 짧은 트랜잭션으로 저장 순서로 쓴다.
+- 어시스턴트 스트림은 공용 `@Async` 풀이 아니라 전용 실행기(`assistantStreamExecutor`)에서 돈다. 큐가 없어 상한에 닿으면 바로 503 이다.
+
 ## 호출 계약
 
 Python 서버가 구현할 API. 요청·응답 모두 JSON 이다.
@@ -72,6 +76,7 @@ POST 라서 브라우저 `EventSource` 는 쓸 수 없다. `fetch` 의 `response
 | 방 멤버가 아님 | 403 | `ROOM_NOT_MEMBER` |
 | 오늘 한도 초과 (방당 30회) | 429 | `AI_QUOTA_EXCEEDED` |
 | AI 서버 연결이 끊긴 상태 | 503 | `AI_UNAVAILABLE` |
+| 동시에 열린 어시스턴트 스트림이 상한(`app.ai.assistant-max-streams`, 기본 10)에 닿음 | 503 | `AI_UNAVAILABLE` |
 
 ### 스트림 이벤트
 
