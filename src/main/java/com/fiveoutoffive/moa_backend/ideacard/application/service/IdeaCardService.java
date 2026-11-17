@@ -30,7 +30,6 @@ import com.fiveoutoffive.moa_backend.ideacard.domain.event.CardChangedEvent;
 import com.fiveoutoffive.moa_backend.ideacard.domain.event.CardDeletedEvent;
 import com.fiveoutoffive.moa_backend.ideacard.domain.model.CardComment;
 import com.fiveoutoffive.moa_backend.ideacard.domain.model.CardFile;
-import com.fiveoutoffive.moa_backend.ideacard.domain.model.CardReaction;
 import com.fiveoutoffive.moa_backend.ideacard.domain.model.IdeaCard;
 import com.fiveoutoffive.moa_backend.ideacard.domain.repository.CardCommentRepository;
 import com.fiveoutoffive.moa_backend.ideacard.domain.repository.CardFileRepository;
@@ -47,6 +46,8 @@ import com.fiveoutoffive.moa_backend.session.exception.SessionErrorCode;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -200,8 +201,8 @@ public class IdeaCardService implements IdeaCardUseCase {
         access.requireMember(roomId, accountId);
         IdeaCard card = open(roomId, cardId);
         requireEmoji(emoji);
-        if (reactionRepository.findByCardIdAndAccountIdAndEmoji(cardId, accountId, emoji).isEmpty()) {
-            reactionRepository.save(CardReaction.builder().cardId(cardId).accountId(accountId).emoji(emoji).build());
+        // 연타로 같은 요청이 동시에 와도 1건만 넣고, 실제로 새로 넣은 쪽만 알림을 보낸다.
+        if (reactionRepository.insertIfAbsent(cardId, accountId, emoji)) {
             notificationSender.send(roomId, accountId, NotificationType.CARD_REACTED, List.of(card.getWriterAccountId()), "내 카드에 반응이 달렸습니다", card.getTitle(), "CARD", cardId);
         }
         return reactionChanged(roomId, cardId, accountId);
@@ -290,12 +291,18 @@ public class IdeaCardService implements IdeaCardUseCase {
         return assembler.reactionSummary(reactionRepository.findByCardId(cardId), accountId);
     }
 
+    /**
+     * 화면 순서대로 sortOrder 를 다시 매긴다. 저장은 id 순서로 한다.
+     * 두 사람이 같은 칸을 동시에 옮길 때 행 잠금 순서가 같아야 DB 교착(deadlock)이 생기지 않고, 늦은 쪽이 version 충돌(409)로 끝난다.
+     */
     private List<IdeaCard> reorder(List<IdeaCard> cards) {
-        List<IdeaCard> saved = new ArrayList<>();
+        Map<Long, IdeaCard> saved = new HashMap<>();
+        List<IdeaCard> renumbered = new ArrayList<>();
         for (int i = 0; i < cards.size(); i++) {
-            saved.add(cardRepository.save(cards.get(i).toBuilder().sortOrder(i).build()));
+            renumbered.add(cards.get(i).toBuilder().sortOrder(i).build());
         }
-        return saved;
+        renumbered.stream().sorted(Comparator.comparing(IdeaCard::getId)).forEach(c -> saved.put(c.getId(), cardRepository.save(c)));
+        return renumbered.stream().map(c -> saved.get(c.getId())).toList();
     }
 
     private IdeaCardDetailResponse broadcastDetail(Long roomId, Long accountId, IdeaCard card, String type) {

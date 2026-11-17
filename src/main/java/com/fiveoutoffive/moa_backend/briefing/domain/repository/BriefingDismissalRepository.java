@@ -17,4 +17,6 @@ public interface BriefingDismissalRepository {
     void deleteByRoomIdAndAccountId(Long roomId, Long accountId);
 
     Optional<BriefingDismissal> findByRoomIdAndAccountIdAndEventType(Long roomId, Long accountId, BoardEventType eventType);
+
+    void upsert(Long roomId, Long accountId, BoardEventType eventType, java.time.LocalDateTime dismissedAt);
 }

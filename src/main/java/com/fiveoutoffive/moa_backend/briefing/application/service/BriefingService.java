@@ -59,9 +59,8 @@ public class BriefingService implements BriefingUseCase {
     public BriefingResponse dismiss(Long accountId, Long roomId, BoardEventType eventType) {
         RoomMember member = access.requireMember(roomId, accountId);
         LocalDateTime now = KstTime.nowUtc();
-        dismissalRepository.save(dismissalRepository.findByRoomIdAndAccountIdAndEventType(roomId, accountId, eventType)
-                .map(found -> found.toBuilder().dismissedAt(now).build())
-                .orElseGet(() -> BriefingDismissal.builder().roomId(roomId).accountId(accountId).eventType(eventType).dismissedAt(now).build()));
+        // 지우기를 빠르게 두 번 눌러도 유니크 위반 없이 한 건만 남게 한 번에 넣거나 갱신한다.
+        dismissalRepository.upsert(roomId, accountId, eventType, now);
         BriefingResponse response = build(roomId, member);
         // 모든 묶음을 지우면 '모두 확인'과 같이 처리한다.
         return response.teamNews().isEmpty() ? build(roomId, markChecked(member)) : response;
@@ -79,7 +78,9 @@ public class BriefingService implements BriefingUseCase {
             return new BriefingResponse(false, null, new BriefingResponse.MyTodos(List.of(), List.of(), List.of(), List.of()), List.of(), new BriefingResponse.Highlights(List.of(), List.of()));
         }
         LocalDateTime limit = KstTime.nowUtc().minusDays(RETENTION_DAYS);
-        LocalDateTime since = checked != null ? checked : limit;
+        // 요구사항 41: '모두 확인'을 한 번도 안 눌렀으면 합류한 뒤의 소식만 본다(합류 전 한 달치가 쏟아지지 않게). 30일 한도는 그대로.
+        LocalDateTime base = checked != null ? checked : member.getJoinedAt();
+        LocalDateTime since = base == null || base.isBefore(limit) ? limit : base;
         List<BoardEvent> events = eventRepository.findRecent(roomId, since, limit).stream().filter(e -> !accountId.equals(e.getActorAccountId())).toList();
         Map<BoardEventType, LocalDateTime> dismissed = dismissalRepository.findByRoomIdAndAccountId(roomId, accountId).stream()
                 .collect(Collectors.toMap(BriefingDismissal::getEventType, BriefingDismissal::getDismissedAt));

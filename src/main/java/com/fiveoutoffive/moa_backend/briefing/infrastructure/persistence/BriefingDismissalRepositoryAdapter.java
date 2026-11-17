@@ -42,4 +42,9 @@ public class BriefingDismissalRepositoryAdapter implements BriefingDismissalRepo
     public Optional<BriefingDismissal> findByRoomIdAndAccountIdAndEventType(Long roomId, Long accountId, BoardEventType eventType) {
         return springDataRepository.findByRoomIdAndAccountIdAndEventType(roomId, accountId, eventType).map(briefingDismissalMapper::toDomain);
     }
+
+    @Override
+    public void upsert(Long roomId, Long accountId, BoardEventType eventType, java.time.LocalDateTime dismissedAt) {
+        springDataRepository.upsert(roomId, accountId, eventType.name(), dismissedAt);
+    }
 }

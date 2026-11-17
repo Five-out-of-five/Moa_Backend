@@ -47,4 +47,10 @@ public class MoodStatusRepositoryAdapter implements MoodStatusRepository {
     public Optional<MoodStatus> findFirstByRoomIdAndAccountIdOrderByRecordedDateDesc(Long roomId, Long accountId) {
         return springDataRepository.findFirstByRoomIdAndAccountIdOrderByRecordedDateDesc(roomId, accountId).map(moodStatusMapper::toDomain);
     }
+
+    @Override
+    public MoodStatus upsert(Long roomId, Long accountId, com.fiveoutoffive.moa_backend.mood.domain.model.Mood mood, String comment, LocalDate date, java.time.LocalDateTime now) {
+        springDataRepository.upsert(roomId, accountId, mood.name(), comment, date, now);
+        return springDataRepository.findByRoomIdAndAccountIdAndRecordedDate(roomId, accountId, date).map(moodStatusMapper::toDomain).orElseThrow();
+    }
 }

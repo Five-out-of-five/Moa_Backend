@@ -31,6 +31,11 @@ public class CardConflictRepositoryAdapter implements CardConflictRepository {
     }
 
     @Override
+    public Optional<CardConflict> findByIdForUpdate(Long id) {
+        return springDataRepository.findByIdForUpdate(id).map(cardConflictMapper::toDomain);
+    }
+
+    @Override
     public List<CardConflict> findByRoomId(Long roomId) {
         return springDataRepository.findByRoomId(roomId).stream().map(cardConflictMapper::toDomain).toList();
     }

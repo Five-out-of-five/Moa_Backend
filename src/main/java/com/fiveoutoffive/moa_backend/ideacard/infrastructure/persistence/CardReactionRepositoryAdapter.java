@@ -44,6 +44,11 @@ public class CardReactionRepositoryAdapter implements CardReactionRepository {
     }
 
     @Override
+    public boolean insertIfAbsent(Long cardId, Long accountId, String emoji) {
+        return springDataRepository.insertIfAbsent(cardId, accountId, emoji) == 1;
+    }
+
+    @Override
     public void deleteById(Long id) {
         springDataRepository.deleteById(id);
     }

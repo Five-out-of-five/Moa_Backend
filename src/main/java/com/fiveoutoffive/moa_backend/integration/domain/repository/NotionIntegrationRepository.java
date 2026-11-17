@@ -13,4 +13,7 @@ public interface NotionIntegrationRepository {
     Optional<NotionIntegration> findByRoomId(Long roomId);
 
     void deleteById(Long id);
+
+    /** 이 연동의 내보내기 잠금을 건다(트랜잭션 끝까지). 같은 연동의 내보내기는 차례로 처리된다. 트랜잭션 안에서만 쓴다. */
+    void lockExport(Long integrationId);
 }

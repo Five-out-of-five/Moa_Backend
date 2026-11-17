@@ -178,6 +178,8 @@ public class NotionIntegrationService implements NotionIntegrationUseCase {
         if (integration.getTargetDatabaseId() == null) {
             throw new BusinessException(IntegrationErrorCode.INTEGRATION_NOTION_DATABASE_NOT_FOUND);
         }
+        // 내보내기 연타나 회차 마감 자동 내보내기와 겹쳐도 차례로 처리한다. 늦은 쪽은 아래에서 앞선 기록을 보고 새 페이지 대신 기존 페이지를 갱신한다.
+        repository.lockExport(integration.getId());
         String token = cipher.decrypt(integration.getAccessTokenEnc());
         String content = exportContent(session);
         Optional<NotionExportLog> previous = logRepository.findByIntegrationIdAndSessionId(integration.getId(), session.getId());

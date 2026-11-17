@@ -71,8 +71,7 @@ public class SlackEventHandlers {
             ok = sender.send(url, text);
         }
         logRepository.save(SlackDeliveryLog.builder().integrationId(integration.getId()).eventType(type).status(ok ? SlackDeliveryStatus.SUCCESS : SlackDeliveryStatus.FAILED).retryCount(attempts).errorMessage(ok ? null : "webhook request failed").build());
-        int fails = ok ? 0 : integration.getConsecutiveFailCount() + 1;
-        boolean disable = fails >= failThreshold;
-        integrationRepository.save(integration.toBuilder().consecutiveFailCount(fails).enabled(!disable && integration.getEnabled()).disabledAt(disable ? KstTime.nowUtc() : integration.getDisabledAt()).build());
+        // 읽어 둔 연동 전체를 다시 저장하면, 발송하는 몇 초 사이 방장이 바꾼 주소·이벤트를 옛 값으로 덮어쓰거나 지운 연동을 되살린다. 결과 칸만 바꾼다.
+        integrationRepository.recordDelivery(integration.getId(), ok, failThreshold, KstTime.nowUtc());
     }
 }

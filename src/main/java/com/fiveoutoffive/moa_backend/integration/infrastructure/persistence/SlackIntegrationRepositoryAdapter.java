@@ -35,4 +35,9 @@ public class SlackIntegrationRepositoryAdapter implements SlackIntegrationReposi
     public void deleteById(Long id) {
         springDataRepository.deleteById(id);
     }
+
+    @Override
+    public void recordDelivery(Long id, boolean ok, int failThreshold, java.time.LocalDateTime now) {
+        springDataRepository.recordDelivery(id, ok, failThreshold, now);
+    }
 }

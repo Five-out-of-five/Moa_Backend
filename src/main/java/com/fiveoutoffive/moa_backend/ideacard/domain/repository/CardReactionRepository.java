@@ -18,5 +18,8 @@ public interface CardReactionRepository {
 
     Optional<CardReaction> findByCardIdAndAccountIdAndEmoji(Long cardId, Long accountId, String emoji);
 
+    /** 새로 넣었으면 true, 이미 있었으면 false. */
+    boolean insertIfAbsent(Long cardId, Long accountId, String emoji);
+
     void deleteById(Long id);
 }

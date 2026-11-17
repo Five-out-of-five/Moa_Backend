@@ -223,4 +223,17 @@ class DashboardApiTest extends Be2ApiTestSupport {
 
         post(owner, base + "/ai-recommendations/undo").fails(409, "DASHBOARD_UNDO_NOT_AVAILABLE");
     }
+
+    @Test
+    @DisplayName("같은 위젯을 두 사람이 동시에 추가하면 하나만 성공하고 나머지는 500 이 아니라 409")
+    void addSameWidgetTogether() throws Exception {
+        Member owner = newMember("방장");
+        Member member = newMember("멤버");
+        Long roomId = newRoom(owner, member);
+        String path = "/rooms/" + roomId + "/dashboard/widgets";
+        String body = "{\"widgetType\":\"VOTE\",\"x\":0,\"y\":12,\"w\":3,\"h\":3}";
+
+        assertThat(sendTogether(() -> post(owner, path, body), () -> post(member, path, body))).containsExactlyInAnyOrder(200, 409);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM room_widget WHERE room_id = ? AND widget_type = 'VOTE'", Integer.class, roomId)).isEqualTo(1);
+    }
 }

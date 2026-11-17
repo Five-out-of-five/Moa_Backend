@@ -199,4 +199,58 @@ class IntegrationExternalApiTest extends Be2ApiTestSupport {
         get(member, "/rooms/" + room + "/integrations/slack/deliveries").fails(403, "ROOM_OWNER_ONLY");
         delete(member, "/rooms/" + room + "/integrations/slack").fails(403, "ROOM_OWNER_ONLY");
     }
+
+    // ---------- 동시성 (IN-1, IN-2) ----------
+
+    private static void waitUntil(java.util.function.BooleanSupplier condition) throws InterruptedException {
+        long deadline = System.currentTimeMillis() + 10_000;
+        while (!condition.getAsBoolean()) {
+            if (System.currentTimeMillis() > deadline) {
+                throw new AssertionError("10초 안에 조건이 맞지 않음");
+            }
+            Thread.sleep(50);
+        }
+    }
+
+    @Test
+    @DisplayName("슬랙 발송 중에 방장이 설정을 바꿔도 발송 결과가 바뀐 설정을 덮어쓰지 않는다")
+    void slackDeliveryKeepsNewSettings() throws Exception {
+        String slack = "/rooms/" + roomId + "/integrations/slack";
+        put(owner, slack, "{\"webhookUrl\":\"%s\",\"eventTypes\":[\"SESSION_SUMMARY\",\"VOTE_CREATED\"]}".formatted(WEBHOOK)).ok();
+        java.util.concurrent.CountDownLatch release = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.atomic.AtomicBoolean sending = new java.util.concurrent.atomic.AtomicBoolean();
+        org.mockito.BDDMockito.willAnswer(call -> {
+            sending.set(true);
+            release.await(10, java.util.concurrent.TimeUnit.SECONDS);
+            return false;
+        }).given(slackSender).send(anyString(), anyString());
+
+        Long sessionId = post(owner, "/rooms/" + roomId + "/sessions", "{\"title\":\"회차\"}").ok().id("$.data.sessionId");
+        post(owner, "/rooms/" + roomId + "/sessions/" + sessionId + "/close").ok();
+        waitUntil(sending::get);
+        put(owner, slack, "{\"eventTypes\":[\"VOTE_CREATED\"]}").ok();
+        release.countDown();
+        waitUntil(() -> jdbc.queryForObject("SELECT count(*) FROM slack_delivery_log", Integer.class) > 0);
+
+        assertThat(jdbc.queryForObject("SELECT event_types::text FROM slack_integration WHERE room_id = ?", String.class, roomId)).isEqualTo("{VOTE_CREATED}");
+        assertThat(jdbc.queryForObject("SELECT consecutive_fail_count FROM slack_integration WHERE room_id = ?", Integer.class, roomId)).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("노션 내보내기를 동시에 두 번 눌러도 페이지는 하나만 만들고 둘 다 성공한다")
+    void exportTwiceTogether() throws Exception {
+        connectNotion("db-1");
+        Long sessionId = closedSession();
+        org.mockito.BDDMockito.willAnswer(call -> {
+            Thread.sleep(300);
+            return "page-1";
+        }).given(notionClient).createPage(eq("secret-token"), eq("db-1"), eq("회고 1회차"), anyString());
+        String body = "{\"sessionId\":%d}".formatted(sessionId);
+
+        List<Integer> statuses = sendTogether(() -> post(owner, notion + "/exports", body), () -> post(owner, notion + "/exports", body));
+
+        assertThat(statuses).containsExactly(200, 200);
+        verify(notionClient, org.mockito.Mockito.times(1)).createPage(anyString(), anyString(), anyString(), anyString());
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM notion_export_log WHERE session_id = ?", Integer.class, sessionId)).isEqualTo(1);
+    }
 }
