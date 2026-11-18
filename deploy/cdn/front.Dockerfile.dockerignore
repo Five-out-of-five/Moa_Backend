@@ -1,0 +1,4 @@
+# front.Dockerfile 의 기본 컨텍스트(deploy/cdn)에는 비밀값이 든 env 파일이 있다. 이미지로 보내지 않는다.
+# 프론트 소스는 이름 있는 컨텍스트(front_src)로 따로 받는다.
+*
+!front.Dockerfile
