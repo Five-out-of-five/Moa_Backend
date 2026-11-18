@@ -7,5 +7,8 @@ logs
 *.iml
 .env
 .env.*
+# 운영 env 파일(.backend.env 등)과 예시
+*.env
+*.env.example
 deploy
 docs

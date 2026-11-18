@@ -1,4 +1,6 @@
 # 운영 배포 (EC2 한 대 + CDN). 사용법은 deploy/cdn/README.md
+# 저장소 루트에서 실행한다: docker compose -f docker-compose.prod.yml up -d --build
+# (루트의 docker-compose.yml 은 로컬 개발용이라 이름을 나눴다)
 #
 #   CDN(HTTPS) ─┬─ 기본 경로 ──────────────────────▶ EC2:3000  front (Next)
 #               └─ /api/v1/* /oauth2/* /login/oauth2/*
@@ -7,22 +9,26 @@
 #
 # 외부에 여는 포트는 3000, 8080 두 개뿐이다. redis·ai 는 내부망에서만 통신한다.
 # DB 는 RDS, 파일은 S3 를 쓰므로 여기에 없다.
+#
+# 환경변수 파일 3개를 이 파일과 같은 폴더(저장소 루트)에 둔다. (커밋 금지, .gitignore 대상)
+#   .backend.env  Spring. Redis 비밀번호(SPRING_DATA_REDIS_PASSWORD)도 여기에 둔다
+#   .front.env    Next
+#   .python.env   Python AI 서버
 
 name: moa
 
 services:
   app:
     build:
-      context: ../..
+      context: .
       dockerfile: deploy/cdn/backend.Dockerfile
     image: moa-backend:latest
     restart: unless-stopped
-    env_file: env/backend.env
+    env_file: .backend.env
     environment:
-      # 내부망 주소는 여기서 고정한다. env/backend.env 에 같은 키가 있어도 이 값이 우선한다.
+      # 내부망 주소는 여기서 고정한다. .backend.env 에 같은 키가 있어도 이 값이 우선한다.
       REDIS_HOST: redis
       REDIS_PORT: "6379"
-      SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD:?deploy/cdn/.env 에 REDIS_PASSWORD 를 넣어 주세요}
       AI_SERVER_URL: http://ai:8000
       # application.yaml 의 SQL debug 로그를 운영에서는 끈다.
       LOGGING_LEVEL_ORG_HIBERNATE_SQL: info
@@ -38,15 +44,15 @@ services:
 
   front:
     build:
-      context: .
+      context: deploy/cdn
       dockerfile: front.Dockerfile
       additional_contexts:
-        front_src: ${FRONT_DIR:-../../../Moa_Front}
+        front_src: ${FRONT_DIR:-../Moa_Front}
       secrets:
         - front_env
     image: moa-front:latest
     restart: unless-stopped
-    env_file: env/front.env
+    env_file: .front.env
     environment:
       # Next 서버(BFF)는 인터넷을 거치지 않고 내부망으로 Spring 을 부른다.
       BACKEND_BASE_URL: http://app:8080
@@ -56,30 +62,33 @@ services:
       - app
 
   ai:
-    build: ${AI_DIR:-../../../Moa_Python}
+    build: ${AI_DIR:-../Moa_Python}
     image: moa-ai:latest
     restart: unless-stopped
-    env_file: env/ai.env
+    env_file: .python.env
     expose:
       - "8000"
 
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD}", "--appendonly", "yes"]
-    environment:
-      REDISCLI_AUTH: ${REDIS_PASSWORD}
+    # Spring 과 같은 값을 쓰도록 .backend.env 의 SPRING_DATA_REDIS_PASSWORD 를 비밀번호로 쓴다. 비어 있으면 뜨지 않는다.
+    env_file: .backend.env
+    command:
+      - sh
+      - -c
+      - ': "$${SPRING_DATA_REDIS_PASSWORD:?.backend.env 에 SPRING_DATA_REDIS_PASSWORD 를 넣어 주세요}"; exec redis-server --requirepass "$$SPRING_DATA_REDIS_PASSWORD" --appendonly yes'
     volumes:
       - redis-data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$$SPRING_DATA_REDIS_PASSWORD\" redis-cli ping | grep -q PONG"]
       interval: 5s
       timeout: 3s
       retries: 20
 
 secrets:
   front_env:
-    file: env/front.env
+    file: .front.env
 
 volumes:
   redis-data:

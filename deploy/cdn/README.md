@@ -17,11 +17,12 @@ app ─▶ redis(내부망) · ai(내부망 8000) · RDS · S3
 
 | 파일 | 역할 |
 |---|---|
-| `docker-compose.yml` | 서비스 4개 (app, front, ai, redis) |
+| `docker-compose.prod.yml` (저장소 루트) | 서비스 4개 (app, front, ai, redis) |
 | `backend.Dockerfile` | Spring 이미지 (빌드 컨텍스트: 저장소 루트) |
 | `front.Dockerfile` | Next 이미지 (소스: 프론트 저장소) |
-| `.env.example` | compose 값 (Redis 비밀번호, 다른 저장소 위치) |
-| `env/*.env.example` | 서비스별 환경변수 (backend, front, ai) |
+| `.backend.env.example` (저장소 루트) | Spring 환경변수 (+ Redis 비밀번호) |
+| `.front.env.example` (저장소 루트) | Next 환경변수 |
+| `.python.env.example` (저장소 루트) | Python AI 서버 환경변수 |
 
 AI 서버 이미지는 `Moa_Python/Dockerfile` 을 그대로 쓴다.
 
@@ -134,26 +135,29 @@ git clone https://github.com/Five-out-of-five/Moa_Python.git
 ### 환경변수 파일
 제공받은 파일을 아래 위치에 둔다. 형식은 같은 이름의 `.example` 파일을 본다.
 ```
-Moa_Backend/deploy/cdn/.env            REDIS_PASSWORD, FRONT_DIR, AI_DIR
-Moa_Backend/deploy/cdn/env/backend.env Spring
-Moa_Backend/deploy/cdn/env/front.env   Next
-Moa_Backend/deploy/cdn/env/ai.env      Python AI
+Moa_Backend/.backend.env   Spring + Redis 비밀번호(SPRING_DATA_REDIS_PASSWORD)
+Moa_Backend/.front.env     Next
+Moa_Backend/.python.env    Python AI
 ```
 ```bash
-chmod 600 ~/moa/Moa_Backend/deploy/cdn/.env ~/moa/Moa_Backend/deploy/cdn/env/*.env
+cd ~/moa/Moa_Backend && chmod 600 .backend.env .front.env .python.env
 ```
-- `backend.env` 의 `AI_INTERNAL_API_KEY` 와 `ai.env` 의 `INTERNAL_API_KEY` 는 같은 값이어야 한다.
+- `.backend.env` 에 `SPRING_DATA_REDIS_PASSWORD` 가 꼭 있어야 한다. Spring 과 redis 컨테이너가 같은 값을 읽는다(없으면 redis 가 뜨지 않는다).
+- `.backend.env` 의 `AI_INTERNAL_API_KEY` 와 `.python.env` 의 `INTERNAL_API_KEY` 는 같은 값이어야 한다.
+- 프론트·AI 저장소를 다른 위치에 받았으면 실행 전에 `export FRONT_DIR=... AI_DIR=...` 로 지정한다(기본값은 저장소 루트 기준 `../Moa_Front`, `../Moa_Python`).
 - 소셜 콘솔(구글·카카오·네이버)에 `https://moarang.kro.kr/login/oauth2/code/{google|kakao|naver}` 를 등록한다.
 
 ### 실행
 ```bash
-cd ~/moa/Moa_Backend/deploy/cdn && docker compose up -d --build
+cd ~/moa/Moa_Backend && docker compose -f docker-compose.prod.yml up -d --build
 ```
+루트의 `docker-compose.yml` 은 로컬 개발용(PostgreSQL·Redis·MinIO)이라 운영 파일은 `-f docker-compose.prod.yml` 로 지정한다.
+
 첫 빌드는 의존성을 받느라 10분 가까이 걸린다. 앱이 뜨면 Flyway 가 RDS 에 스키마를 만든다.
 
 ### 확인
 ```bash
-docker compose ps
+docker compose -f docker-compose.prod.yml ps
 ```
 ```bash
 curl -s http://127.0.0.1:8080/actuator/health
@@ -174,24 +178,24 @@ curl -s https://moarang.kro.kr/actuator/health
 cd ~/moa/Moa_Backend && git pull && cd ../Moa_Front && git pull && cd ../Moa_Python && git pull
 ```
 ```bash
-cd ~/moa/Moa_Backend/deploy/cdn && docker compose up -d --build
+cd ~/moa/Moa_Backend && docker compose -f docker-compose.prod.yml up -d --build
 ```
-`front.env` 의 `NEXT_PUBLIC_*` 를 바꾸면 프론트 이미지를 다시 빌드해야 반영된다(`--build`).
+`.front.env` 의 `NEXT_PUBLIC_*` 를 바꾸면 프론트 이미지를 다시 빌드해야 반영된다(`--build`).
 
 ## 운영 명령
 ```bash
-docker compose logs -f app
+docker compose -f docker-compose.prod.yml logs -f app
 ```
 ```bash
-docker compose restart front
+docker compose -f docker-compose.prod.yml restart front
 ```
 중지 (`down -v` 는 Redis 데이터를 지우므로 쓰지 않는다):
 ```bash
-docker compose down
+docker compose -f docker-compose.prod.yml down
 ```
 
 ## 주의
 - **서버 한 대 기준**: STOMP 는 인메모리 브로커라 앱 컨테이너를 여러 개로 늘리면 실시간 전송이 인스턴스 사이에 전달되지 않는다.
-- **OAuth 콜백 주소**: CDN 뒤에서는 Spring 이 자기 공개 주소를 알 수 없어 `backend.env` 에 직접 지정한다(`SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_*_REDIRECTURI`). 도메인을 바꾸면 이 값과 각 콘솔을 함께 바꾼다.
+- **OAuth 콜백 주소**: CDN 뒤에서는 Spring 이 자기 공개 주소를 알 수 없어 `.backend.env` 에 직접 지정한다(`SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_*_REDIRECTURI`). 도메인을 바꾸면 이 값과 각 콘솔을 함께 바꾼다.
 - **8080 직접 접속**은 평문 HTTP 라 `COOKIE_SECURE=true` 인 refresh 쿠키가 동작하지 않는다. 점검용으로만 쓴다.
 - **SSE 타임아웃**: CloudFront 원본 응답 제한 시간(최대 60초, 더 늘리려면 AWS 한도 증가 요청)을 넘겨 데이터가 끊기면 스트림이 잘린다. AI 서버 마감이 25초라 보통은 걸리지 않는다.
