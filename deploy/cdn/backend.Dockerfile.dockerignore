@@ -1,0 +1,11 @@
+# backend.Dockerfile 전용 제외 목록. 빌드 컨텍스트(저장소 루트)에서 필요 없는 것을 보내지 않는다.
+.git
+.gradle
+.idea
+build
+logs
+*.iml
+.env
+.env.*
+deploy
+docs

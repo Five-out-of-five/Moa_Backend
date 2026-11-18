@@ -40,3 +40,7 @@ out/
 logs/
 *.log
 .env
+
+### 운영 배포 (deploy/cdn) — 실제 값이 든 env 파일
+deploy/cdn/.env
+deploy/cdn/env/*.env
