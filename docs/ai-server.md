@@ -126,10 +126,15 @@ event:done
 data:{"status":"PARTIAL","messageId":3}
 ```
 
-### 중간 서버(BFF·Nginx)
+### 중간 서버(BFF·CloudFront)
 
-- Next BFF(`/bff/**`)는 응답을 모았다가 보내지 말고 스트림 그대로 흘려보낸다. 사용자가 끊으면 Spring 쪽 요청도 끊는다.
-- Nginx 등 프록시는 이 경로의 응답 버퍼링을 끄고(`proxy_buffering off`) 읽기 타임아웃을 120초보다 길게 둔다.
+운영은 Nginx 없이 CloudFront → EC2 로 간다(`deploy/cdn/README.md`).
+
+- Next BFF 를 거친다면 응답을 모았다가 보내지 말고 스트림 그대로 흘려보낸다. 사용자가 끊으면 Spring 쪽 요청도 끊는다.
+- CloudFront `/api/v1/*` 동작은 캐시를 끈다(`CachingDisabled`). 캐시가 켜져 있으면 응답을 모아서 보내 스트리밍이 깨진다.
+- CloudFront 원본 응답 제한 시간은 60초로 둔다. 첫 글자까지(Python 마감 25초)와 글자 사이 간격이 이 안에 들어오면 스트림은 끝까지 이어진다. 스트림 전체 길이는 Spring 쪽 120초 제한을 따른다.
+- 사용자가 중간에 끊었을 때 CloudFront 가 Spring 쪽 연결까지 바로 끊지 않으면, 서버는 끊긴 줄 모르고 끝까지 받아 `COMPLETED` 로 저장할 수 있다. 배포 후 한 번 확인한다.
+- 로컬이나 다른 환경에서 Nginx 를 쓴다면 이 경로의 응답 버퍼링을 끄고(`proxy_buffering off`) 읽기 타임아웃을 120초보다 길게 둔다.
 
 ### 대화 이력
 
