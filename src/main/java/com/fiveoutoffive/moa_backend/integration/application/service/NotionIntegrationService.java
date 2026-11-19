@@ -104,6 +104,10 @@ public class NotionIntegrationService implements NotionIntegrationUseCase {
         Long roomId = Long.valueOf(parts[0]);
         Long accountId = Long.valueOf(parts[1]);
         String settings = frontendUrl + "/rooms/" + roomId + "/settings/integrations";
+        if (code == null || code.isBlank()) {
+            // 노션 연결 화면에서 취소했다(error=access_denied, code 없음). 연결하지 않고 설정 화면으로 돌려보낸다.
+            return settings + "?notion=cancelled";
+        }
         if (!access.isOwner(roomId, accountId)) {
             throw new BusinessException(RoomErrorCode.ROOM_OWNER_ONLY);
         }

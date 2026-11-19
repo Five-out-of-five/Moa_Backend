@@ -56,7 +56,8 @@ public class NotionIntegrationController {
 
     @GetMapping("/integrations/notion/callback")
     @Operation(summary = "노션 OAuth 콜백")
-    public void callback(@RequestParam String code, @RequestParam String state, HttpServletResponse response) throws IOException {
+    // 사용자가 노션 연결 화면에서 취소하면 노션은 code 없이 error=access_denied 로 돌아온다. 400 JSON 대신 설정 화면으로 돌려보내려고 둘 다 선택값으로 받는다.
+    public void callback(@RequestParam(required = false) String code, @RequestParam(required = false) String state, HttpServletResponse response) throws IOException {
         String target;
         try {
             target = useCase.callback(code, state);

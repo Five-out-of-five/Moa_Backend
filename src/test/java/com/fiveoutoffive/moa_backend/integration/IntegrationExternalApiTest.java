@@ -111,6 +111,30 @@ class IntegrationExternalApiTest extends Be2ApiTestSupport {
         assertThat(reused.getRedirectedUrl()).contains("INTEGRATION_NOTION_STATE_INVALID");
     }
 
+    @Test
+    @DisplayName("콜백: 노션 화면에서 취소하면(code 없이 error=access_denied) 400 이 아니라 설정 화면으로 돌려보내고 연결하지 않는다")
+    void callbackCancelled() throws Exception {
+        String url = post(owner, notion + "/authorize").ok().read("$.data.authorizeUrl");
+        String state = url.replaceAll(".*[?&]state=([^&]+).*", "$1");
+
+        var res = mockMvc.perform(MockMvcRequestBuilders.get("/api/v1/integrations/notion/callback")
+                .param("error", "access_denied").param("state", state)).andReturn().getResponse();
+
+        assertThat(res.getStatus()).isEqualTo(302);
+        assertThat(res.getRedirectedUrl()).contains("/rooms/" + roomId + "/settings/integrations").contains("notion=cancelled");
+        assertThat(get(owner, notion).ok().<Boolean>read("$.data.connected")).isFalse();
+    }
+
+    @Test
+    @DisplayName("콜백: code·state 가 둘 다 없어도 400 이 아니라 STATE_INVALID 로 돌려보낸다")
+    void callbackWithoutParams() throws Exception {
+        var res = mockMvc.perform(MockMvcRequestBuilders.get("/api/v1/integrations/notion/callback")
+                .param("error", "access_denied")).andReturn().getResponse();
+
+        assertThat(res.getStatus()).isEqualTo(302);
+        assertThat(res.getRedirectedUrl()).contains("notion=error").contains("INTEGRATION_NOTION_STATE_INVALID");
+    }
+
     // ---------- 노션 데이터베이스·설정 ----------
 
     @Test
