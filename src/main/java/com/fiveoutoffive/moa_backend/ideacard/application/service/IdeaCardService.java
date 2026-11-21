@@ -267,11 +267,11 @@ public class IdeaCardService implements IdeaCardUseCase {
     @Override
     public List<FileResponse> attachFile(Long accountId, Long roomId, Long cardId, AttachFileCommand command) {
         access.requireMember(roomId, accountId);
-        writable(roomId, cardId, accountId);
+        IdeaCard card = writable(roomId, cardId, accountId);
         List<CardFile> current = fileRepository.findByCardIdOrderBySortOrderAsc(cardId);
         fileAttachSupport.requireAttachable(roomId, accountId, List.of(command.fileId()), FileGroup.CARD_ATTACHMENT, current.size());
         fileRepository.save(CardFile.builder().cardId(cardId).fileId(command.fileId()).sortOrder(current.size()).build());
-        realtime.toRoom(roomId, "CARD_UPDATED", Map.of("cardId", cardId), accountId);
+        broadcastCardUpdated(roomId, accountId, card);
         return fileAttachSupport.responses(fileRepository.findByCardIdOrderBySortOrderAsc(cardId).stream().map(CardFile::getFileId).toList());
     }
 
@@ -279,11 +279,11 @@ public class IdeaCardService implements IdeaCardUseCase {
     public void removeFile(Long accountId, Long roomId, Long cardId, Long fileId) {
         access.requireMember(roomId, accountId);
         // 요구사항 27: 마감된 회차의 카드는 수정·삭제 불가(읽기 전용). 첨부 추가와 같은 검사를 한다.
-        writable(roomId, cardId, accountId);
+        IdeaCard card = writable(roomId, cardId, accountId);
         CardFile link = fileRepository.findByCardIdAndFileId(cardId, fileId).orElseThrow(() -> new BusinessException(FileErrorCode.FILE_NOT_FOUND));
         fileRepository.deleteById(link.getId());
         fileAttachSupport.softDelete(List.of(fileId));
-        realtime.toRoom(roomId, "CARD_UPDATED", Map.of("cardId", cardId), accountId);
+        broadcastCardUpdated(roomId, accountId, card);
     }
 
     private List<ReactionSummaryResponse> reactionChanged(Long roomId, Long cardId, Long accountId) {
@@ -303,6 +303,11 @@ public class IdeaCardService implements IdeaCardUseCase {
         }
         renumbered.stream().sorted(Comparator.comparing(IdeaCard::getId)).forEach(c -> saved.put(c.getId(), cardRepository.save(c)));
         return renumbered.stream().map(c -> saved.get(c.getId())).toList();
+    }
+
+    /** CARD_UPDATED 는 어떤 변경이든 카드 요약을 보낸다(첨부 추가·삭제도 카드 수정과 같은 모양). fileCount 등이 바뀐 값으로 간다. */
+    private void broadcastCardUpdated(Long roomId, Long accountId, IdeaCard card) {
+        realtime.toRoom(roomId, "CARD_UPDATED", assembler.summaries(roomId, accountId, List.of(card)).getFirst(), accountId);
     }
 
     private IdeaCardDetailResponse broadcastDetail(Long roomId, Long accountId, IdeaCard card, String type) {

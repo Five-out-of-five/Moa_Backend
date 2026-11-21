@@ -55,6 +55,10 @@ class IdeaCardApiTest extends Be2ApiTestSupport {
 
         List<Integer> ids = get(owner, cards).ok().read("$.data[*].cardId");
         assertThat(ids).contains(cardId.intValue());
+        // 보드 카드에 내용을 보여 주도록 목록에도 본문이 온다. 상세의 content 는 그대로 한 번만 온다.
+        List<String> contents = get(owner, cards).ok().read("$.data[?(@.cardId==" + cardId + ")].content");
+        assertThat(contents).containsExactly("내용");
+        assertThat(detail.<String>read("$.data.content")).isEqualTo("내용");
     }
 
     @Test
