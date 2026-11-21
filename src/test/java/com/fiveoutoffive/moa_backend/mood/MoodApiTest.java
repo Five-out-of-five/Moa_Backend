@@ -49,6 +49,38 @@ class MoodApiTest extends Be2ApiTestSupport {
     }
 
     @Test
+    @DisplayName("오늘 기분을 남기고 나간 멤버는 분포·오늘 추이에서도 빠진다 (목록과 숫자가 맞는다)")
+    void leftMemberNotCounted() throws Exception {
+        Member owner = newMember("방장");
+        Member member = newMember("멤버");
+        Long roomId = newRoom(owner, member);
+        String path = "/rooms/" + roomId + "/moods";
+        put(owner, path + "/me", """
+                {"mood":"GOOD"}""").ok();
+        put(member, path + "/me", """
+                {"mood":"TIRED"}""").ok();
+        jdbc.update("UPDATE room_member SET status = 'LEFT' WHERE room_id = ? AND account_id = ?", roomId, member.id());
+
+        Response team = get(owner, path + "?period=DAYS_7").ok();
+
+        assertThat(team.<List<Object>>read("$.data.members")).hasSize(1);
+        assertThat(team.<Integer>read("$.data.distribution.GOOD")).isEqualTo(1);
+        assertThat(team.<Integer>read("$.data.distribution.TIRED")).isZero();
+        assertThat(team.<Integer>read("$.data.trend[6].counts.TIRED")).isZero();
+        assertThat(team.<List<Object>>read("$.data.trend")).hasSize(7);
+    }
+
+    @Test
+    @DisplayName("기간 값이 명세(TODAY/DAYS_7/DAYS_30)가 아니면 400")
+    void invalidPeriod() throws Exception {
+        Member owner = newMember("방장");
+        Long roomId = newRoom(owner);
+
+        get(owner, "/rooms/" + roomId + "/moods?period=7").fails(400, "COMMON_INVALID_INPUT");
+        assertThat(get(owner, "/rooms/" + roomId + "/moods?period=DAYS_30").ok().<List<Object>>read("$.data.trend")).hasSize(30);
+    }
+
+    @Test
     @DisplayName("아무도 등록하지 않으면 분포가 모두 0")
     void emptyDistribution() throws Exception {
         Member owner = newMember("방장");

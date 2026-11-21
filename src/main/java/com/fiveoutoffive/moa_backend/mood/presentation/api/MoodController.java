@@ -1,5 +1,6 @@
 package com.fiveoutoffive.moa_backend.mood.presentation.api;
 
+import com.fiveoutoffive.moa_backend.mood.domain.model.MoodPeriod;
 import com.fiveoutoffive.moa_backend.global.annotation.LoginAccount;
 import com.fiveoutoffive.moa_backend.global.common.api.response.ApiResponse;
 import com.fiveoutoffive.moa_backend.mood.application.result.MoodResponse;
@@ -34,7 +35,7 @@ public class MoodController {
 
     @GetMapping
     @Operation(summary = "팀 상태값 현황")
-    public ApiResponse<TeamMoodResponse> team(@LoginAccount Long accountId, @PathVariable Long roomId, @RequestParam(defaultValue = "TODAY") String period) {
+    public ApiResponse<TeamMoodResponse> team(@LoginAccount Long accountId, @PathVariable Long roomId, @RequestParam(defaultValue = "TODAY") MoodPeriod period) {
         return ApiResponse.success(useCase.getTeam(accountId, roomId, period));
     }
 }
