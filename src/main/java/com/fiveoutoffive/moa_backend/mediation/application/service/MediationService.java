@@ -196,7 +196,7 @@ public class MediationService implements MediationUseCase {
     }
 
     private ConflictSummaryResponse summary(CardConflict c) {
-        return new ConflictSummaryResponse(c.getId(), c.getStatus(), new ConflictSummaryResponse.CardRef(c.getCardAId(), card(c.getRoomId(), c.getCardAId()).getTitle()), new ConflictSummaryResponse.CardRef(c.getCardBId(), card(c.getRoomId(), c.getCardBId()).getTitle()), c.getDetectedAt());
+        return new ConflictSummaryResponse(c.getId(), c.getStatus(), new ConflictSummaryResponse.CardRef(c.getCardAId(), card(c.getRoomId(), c.getCardAId()).getTitle()), new ConflictSummaryResponse.CardRef(c.getCardBId(), card(c.getRoomId(), c.getCardBId()).getTitle()), c.getDetectedAt(), c.getAdoptedCardId());
     }
 
     private CompromiseDraftResponse toResponse(CompromiseDraft d) {
