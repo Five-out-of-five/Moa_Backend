@@ -281,16 +281,19 @@ public class RoomService implements RoomUseCase {
     @Override
     public MemberProfileResponse updateMyProfile(Long accountId, Long roomId, MemberProfileUpdateCommand command) {
         RoomMember member = access.requireMember(roomId, accountId);
-        String nickname = command.nickname();
+        // 보낸 필드만 바꾼다. 키가 없으면(null) 그대로 두고, null 값을 보내면(Optional.empty()) 지운다.
+        String nickname = command.nickname() == null ? member.getNickname() : command.nickname().orElse(null);
         if (nickname != null && !nickname.equals(member.getNickname())
                 && roomMemberRepository.existsByRoomIdAndNicknameAndStatus(roomId, nickname, RoomMemberStatus.ACTIVE)) {
             throw new BusinessException(RoomErrorCode.MEMBER_NICKNAME_DUPLICATED);
         }
-        if (command.profileFileId() != null) {
-            fileAttachSupport.requireOwnedOfGroup(roomId, accountId, command.profileFileId(), FileGroup.PROFILE_IMAGE);
+        Long profileFileId = command.profileFileId() == null ? member.getProfileFileId() : command.profileFileId().orElse(null);
+        if (command.profileFileId() != null && profileFileId != null) {
+            fileAttachSupport.requireOwnedOfGroup(roomId, accountId, profileFileId, FileGroup.PROFILE_IMAGE);
         }
-        roomMemberRepository.save(member.toBuilder().nickname(nickname).profileFileId(command.profileFileId())
-                .positionLabel(command.positionLabel()).profileSetupAt(KstTime.nowUtc()).build());
+        String positionLabel = command.positionLabel() == null ? member.getPositionLabel() : command.positionLabel().orElse(null);
+        roomMemberRepository.save(member.toBuilder().nickname(nickname).profileFileId(profileFileId)
+                .positionLabel(positionLabel).profileSetupAt(KstTime.nowUtc()).build());
         realtime.toRoom(roomId, "MEMBER_UPDATED", access.memberRef(roomId, accountId), accountId);
         return profile(roomId, accountId, accountId);
     }

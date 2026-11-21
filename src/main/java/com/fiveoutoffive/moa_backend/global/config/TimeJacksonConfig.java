@@ -2,8 +2,6 @@ package com.fiveoutoffive.moa_backend.global.config;
 
 import com.fiveoutoffive.moa_backend.global.util.KstTime;
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
-import java.time.temporal.ChronoUnit;
 import org.springframework.boot.jackson.autoconfigure.JsonMapperBuilderCustomizer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -34,8 +32,7 @@ public class TimeJacksonConfig {
 
         @Override
         public void serialize(LocalDateTime value, JsonGenerator gen, SerializationContext ctxt) {
-            gen.writeString(KstTime.toKst(value).truncatedTo(ChronoUnit.SECONDS)
-                    .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME));
+            gen.writeString(KstTime.toKstIsoString(value));
         }
     }
 }

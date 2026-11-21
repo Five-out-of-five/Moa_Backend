@@ -117,6 +117,27 @@ class FileApiTest extends Be2ApiTestSupport {
     }
 
     @Test
+    @DisplayName("방 파일 목록의 전체 개수도 목록과 같은 기준(연결된 첨부만)으로 센다")
+    void roomFilesTotalCount() throws Exception {
+        Member owner = newMember("방장");
+        Long roomId = newRoom(owner);
+        Long first = uploadText(owner, roomId, "CARD_ATTACHMENT");
+        Long second = uploadText(owner, roomId, "CARD_ATTACHMENT");
+        post(owner, "/rooms/" + roomId + "/sessions", """
+                {"title":"1회차"}""").ok();
+        post(owner, "/rooms/" + roomId + "/idea-cards", """
+                {"cardType":"KEEP","title":"첨부 카드","fileIds":[%d,%d]}""".formatted(first, second)).ok();
+        uploadText(owner, roomId, "CHAT_ATTACHMENT");
+        uploadText(owner, roomId, "TASK_ATTACHMENT");
+
+        Response page = get(owner, "/rooms/" + roomId + "/files?size=1").ok();
+
+        assertThat(page.<Integer>read("$.data.totalElements")).isEqualTo(2);
+        assertThat(page.<Integer>read("$.data.totalPages")).isEqualTo(2);
+        assertThat(page.<Boolean>read("$.data.hasNext")).isTrue();
+    }
+
+    @Test
     @DisplayName("방 파일 목록에는 연결된 첨부만 출처와 함께 나오고, 원본 카드가 삭제되면 빠진다")
     void roomFiles() throws Exception {
         Member owner = newMember("방장");

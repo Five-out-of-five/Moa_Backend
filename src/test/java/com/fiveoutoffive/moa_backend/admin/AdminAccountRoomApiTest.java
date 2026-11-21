@@ -79,7 +79,9 @@ class AdminAccountRoomApiTest extends Be2ApiTestSupport {
             assertThat(suspended.<String>read("$.data.suspendedUntil")).isNotNull();
             assertThat(suspended.<String>read("$.data.suspensions[0].period")).isEqualTo("DAYS_7");
 
-            get(target, "/accounts/me").fails(403, "AUTH_ACCOUNT_SUSPENDED");
+            Response blocked = get(target, "/accounts/me").fails(403, "AUTH_ACCOUNT_SUSPENDED");
+            // 해제 시각은 다른 응답 시각과 같은 한국 시각(+09:00) 형식이고, 관리자 화면의 suspendedUntil 과 같은 값이다.
+            assertThat(blocked.<String>read("$.error.data")).isEqualTo(suspended.<String>read("$.data.suspendedUntil")).endsWith("+09:00");
             post(admin, "/admin/accounts/" + target.id() + "/suspension", """
                     {"period":"DAYS_3","reason":"또"}""").fails(409, "ADMIN_ALREADY_SUSPENDED");
 
@@ -103,7 +105,9 @@ class AdminAccountRoomApiTest extends Be2ApiTestSupport {
                     {"period":"PERMANENT","reason":"반복 위반"}""").ok();
 
             assertThat(res.<String>read("$.data.suspendedUntil")).isNull();
-            get(target, "/accounts/me").fails(403, "AUTH_ACCOUNT_SUSPENDED");
+            Response blocked = get(target, "/accounts/me").fails(403, "AUTH_ACCOUNT_SUSPENDED");
+            // 에러 본문은 null 필드를 싣지 않으므로 영구 정지면 data 키가 없다.
+            assertThat(blocked.body()).doesNotContain("\"data\"");
         }
 
         @Test

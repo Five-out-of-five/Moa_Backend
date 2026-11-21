@@ -53,7 +53,7 @@ public class AdminSuspensionSupport {
         };
         accountRepository.save(account.toBuilder().status(AccountStatus.SUSPENDED).suspendedUntil(until).build());
         suspensionRepository.save(AccountSuspension.builder().accountId(account.getId()).adminAccountId(adminId).reportId(reportId).period(period).reason(reason).startedAt(now).endsAt(until).build());
-        String mark = until == null ? "PERMANENT" : until.toString();
+        String mark = until == null ? RedisKeys.SUSPENDED_PERMANENT : until.toString();
         if (until == null) {
             redisTemplate.opsForValue().set(RedisKeys.SUSPENDED_PREFIX + account.getId(), mark);
         } else {
