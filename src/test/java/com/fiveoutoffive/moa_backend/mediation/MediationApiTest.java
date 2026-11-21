@@ -67,8 +67,10 @@ class MediationApiTest extends Be2ApiTestSupport {
         addMediationWidget();
         Long conflictId = insertConflict();
 
-        List<Integer> ids = get(member, conflicts).ok().read("$.data[*].conflictId");
+        Response list = get(member, conflicts).ok();
+        List<Integer> ids = list.read("$.data[*].conflictId");
         assertThat(ids).containsExactly(conflictId.intValue());
+        assertThat(list.<Object>read("$.data[0].adoptedCardId")).isNull();
 
         Response detail = get(member, conflicts + "/" + conflictId).ok();
         assertThat(detail.<String>read("$.data.status")).isEqualTo("DETECTED");
@@ -148,6 +150,10 @@ class MediationApiTest extends Be2ApiTestSupport {
         assertThat(card.<Boolean>read("$.data.isAiGenerated")).isTrue();
         assertThat(card.id("$.data.sessionId")).isEqualTo(sessionId);
         assertThat(get(owner, conflicts + "/" + conflictId).ok().id("$.data.adoptedCardId")).isEqualTo(newCard);
+        // 목록에서도 채택된 충돌을 구분할 수 있다(상태는 PROPOSED 그대로).
+        Response list = get(member, conflicts).ok();
+        assertThat(list.id("$.data[0].adoptedCardId")).isEqualTo(newCard);
+        assertThat(list.<String>read("$.data[0].status")).isEqualTo("PROPOSED");
 
         post(owner, draftPath + "/adopt", "{\"title\":\"한 번 더\"}").fails(409, "CONFLICT_ALREADY_ADOPTED");
     }
