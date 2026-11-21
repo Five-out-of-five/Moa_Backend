@@ -31,6 +31,8 @@ public final class RedisKeys {
 
     /** 정지 회원 표시 (SUSPENDED:{accountId}) */
     public static final String SUSPENDED_PREFIX = "SUSPENDED:";
+    /** SUSPENDED_PREFIX 값으로 쓰는 영구 정지 표시. 기간 정지는 해제 시각(UTC) 문자열을 넣는다. */
+    public static final String SUSPENDED_PERMANENT = "PERMANENT";
 
     /** 오늘 접속 기록 여부 (ACTIVE:{yyyy-MM-dd}:{accountId}) */
     public static final String DAILY_ACTIVE_PREFIX = "ACTIVE:";

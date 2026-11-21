@@ -9,6 +9,8 @@ import com.fiveoutoffive.moa_backend.global.util.KstTime;
 import com.fiveoutoffive.moa_backend.global.util.RedisKeys;
 import java.time.Duration;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeParseException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -39,10 +41,24 @@ public class AccountGuardAdapter implements AccountGuardPort {
             return;
         }
         if (suspendedUntil != null) {
-            throw new BusinessException(AuthErrorCode.AUTH_ACCOUNT_SUSPENDED, suspendedUntil);
+            // Redis 에는 UTC 시각 문자열 또는 PERMANENT 가 들어 있다. 로그인 경로와 같게 LocalDateTime(영구면 null)으로 넘겨
+            // 응답 직렬화가 한국 시각(+09:00)으로 바꾸게 한다.
+            throw new BusinessException(AuthErrorCode.AUTH_ACCOUNT_SUSPENDED, parseSuspendedUntil(suspendedUntil));
         }
         if (firstToday) {
             dailyActivityRepository.save(AccountDailyActivity.builder().accountId(accountId).activityDate(today).build());
+        }
+    }
+
+    private LocalDateTime parseSuspendedUntil(String mark) {
+        if (RedisKeys.SUSPENDED_PERMANENT.equals(mark)) {
+            return null;
+        }
+        try {
+            return LocalDateTime.parse(mark);
+        } catch (DateTimeParseException e) {
+            log.warn("[AccountGuard] 정지 표시 값을 읽지 못함: {}", mark);
+            return null;
         }
     }
 }

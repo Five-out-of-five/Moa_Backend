@@ -6,12 +6,14 @@ import com.fiveoutoffive.moa_backend.auth.application.usecase.AuthUseCase;
 import com.fiveoutoffive.moa_backend.auth.exception.AuthErrorCode;
 import com.fiveoutoffive.moa_backend.global.exception.BusinessException;
 import com.fiveoutoffive.moa_backend.global.security.GlobalJwtProvider;
+import com.fiveoutoffive.moa_backend.global.util.KstTime;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDateTime;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -48,8 +50,10 @@ public class OAuthLoginHandlers implements AuthenticationSuccessHandler, Authent
             }
             redirect = frontendUrl + appendReturnPath(result.redirectPath(), request);
         } catch (BusinessException e) {
+            // 정지 해제 시각은 응답 본문과 같은 한국 시각(+09:00) 형식으로 준다. 영구 정지는 until 을 붙이지 않는다.
+            String until = e.getData() instanceof LocalDateTime time ? KstTime.toKstIsoString(time) : null;
             redirect = frontendUrl + "/login?error=" + e.getErrorCode().getCode()
-                    + (e.getData() != null ? "&until=" + URLEncoder.encode(String.valueOf(e.getData()), StandardCharsets.UTF_8) : "");
+                    + (until != null ? "&until=" + URLEncoder.encode(until, StandardCharsets.UTF_8) : "");
         }
         clearReturnPath(response);
         response.sendRedirect(redirect);

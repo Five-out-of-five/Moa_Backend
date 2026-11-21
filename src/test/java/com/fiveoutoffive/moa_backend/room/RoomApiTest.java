@@ -413,6 +413,31 @@ class RoomApiTest extends Be2ApiTestSupport {
         }
 
         @Test
+        @DisplayName("보낸 필드만 바꾼다. 닉네임만 고쳐도 이미지·역할 표시는 남고, null 을 보내면 지운다")
+        void partialProfileUpdate() throws Exception {
+            Member owner = newMember("방장");
+            Member joiner = newMember("참여자");
+            Long roomId = newRoom(owner);
+            join(owner, roomId, joiner);
+            Long image = newFile(joiner, roomId, "PROFILE_IMAGE");
+            String path = "/rooms/" + roomId + "/members/me/profile";
+            patch(joiner, path, """
+                    {"nickname":"첫닉","profileFileId":%d,"positionLabel":"백엔드"}""".formatted(image)).ok();
+
+            Response renamed = patch(joiner, path, """
+                    {"nickname":"새닉"}""").ok();
+            assertThat(renamed.<String>read("$.data.displayName")).isEqualTo("새닉");
+            assertThat(renamed.<String>read("$.data.profileImageUrl")).isNotNull();
+            assertThat(renamed.<String>read("$.data.positionLabel")).isEqualTo("백엔드");
+
+            Response cleared = patch(joiner, path, """
+                    {"profileFileId":null,"nickname":null}""").ok();
+            assertThat(cleared.<String>read("$.data.profileImageUrl")).isNull();
+            assertThat(cleared.<String>read("$.data.displayName")).isEqualTo("참여자");
+            assertThat(cleared.<String>read("$.data.positionLabel")).isEqualTo("백엔드");
+        }
+
+        @Test
         @DisplayName("프로필 이미지는 본인이 올린 PROFILE_IMAGE 파일만")
         void profileImageRules() throws Exception {
             Member owner = newMember("방장");

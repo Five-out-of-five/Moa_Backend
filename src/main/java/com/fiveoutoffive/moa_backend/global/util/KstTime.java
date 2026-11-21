@@ -5,6 +5,8 @@ import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoUnit;
 
 /**
  * 시각 변환 유틸 (API 명세 공통 규칙 "날짜·시간").
@@ -44,6 +46,14 @@ public final class KstTime {
             return null;
         }
         return utc.atOffset(ZoneOffset.UTC).atZoneSameInstant(SEOUL).toOffsetDateTime();
+    }
+
+    /** UTC 시각을 응답과 같은 형식의 한국 시각 문자열(예: 2026-11-25T12:00:00+09:00)로 바꾼다. null 이면 null. */
+    public static String toKstIsoString(LocalDateTime utc) {
+        if (utc == null) {
+            return null;
+        }
+        return toKst(utc).truncatedTo(ChronoUnit.SECONDS).format(DateTimeFormatter.ISO_OFFSET_DATE_TIME);
     }
 
     /** 요청으로 받은 오프셋 시각을 저장용 UTC 시각으로 바꾼다. null 이면 null. */
