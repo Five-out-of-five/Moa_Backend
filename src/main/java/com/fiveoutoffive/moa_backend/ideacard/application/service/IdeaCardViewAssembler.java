@@ -71,7 +71,7 @@ public class IdeaCardViewAssembler {
         return cards.stream().map(card -> {
             Task task = tasks.get(card.getId());
             Vote vote = votes.get(card.getId());
-            return new IdeaCardSummaryResponse(card.getId(), card.getCardType(), card.getTitle(), writers.get(card.getWriterAccountId()), card.getSortOrder(), card.getVersion(), card.getIsAiGenerated(),
+            return new IdeaCardSummaryResponse(card.getId(), card.getCardType(), card.getTitle(), card.getContent(), writers.get(card.getWriterAccountId()), card.getSortOrder(), card.getVersion(), card.getIsAiGenerated(),
                     comments.getOrDefault(card.getId(), 0L), files.getOrDefault(card.getId(), 0L), reactionSummary(reactions.getOrDefault(card.getId(), List.of()), viewerId),
                     task == null ? null : new IdeaCardSummaryResponse.ConvertedTask(task.getId(), task.getStatus()),
                     vote == null ? null : new IdeaCardSummaryResponse.LinkedVote(vote.getId(), vote.getStatus()),
