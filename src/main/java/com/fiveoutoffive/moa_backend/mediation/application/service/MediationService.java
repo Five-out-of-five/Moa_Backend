@@ -116,6 +116,10 @@ public class MediationService implements MediationUseCase {
             }
             CompromiseDraft saved = draftRepository.save(CompromiseDraft.builder().conflictId(conflictId).requestedByAccountId(accountId).cardType(type).title(payload.title()).content(payload.content()).status(DraftStatus.DRAFT).build());
             conflictRepository.save(latest.toBuilder().status(ConflictStatus.PROPOSED).build());
+            // 상태가 바뀌면 다른 멤버의 중재 목록도 갱신되게 알린다(커밋 후 전송). 이미 PROPOSED 였으면 보내지 않는다.
+            if (latest.getStatus() != ConflictStatus.PROPOSED) {
+                realtime.toRoom(roomId, "CONFLICT_CHANGED", Map.of("conflictId", conflictId), accountId);
+            }
             return saved;
         });
         return toResponse(draft);
@@ -160,7 +164,9 @@ public class MediationService implements MediationUseCase {
         if (c.getStatus() != ConflictStatus.PROPOSED || c.getAdoptedCardId() != null) {
             return summary(c);
         }
-        return summary(conflictRepository.save(c.toBuilder().status(ConflictStatus.REDETECTED).build()));
+        ConflictSummaryResponse response = summary(conflictRepository.save(c.toBuilder().status(ConflictStatus.REDETECTED).build()));
+        realtime.toRoom(roomId, "CONFLICT_CHANGED", Map.of("conflictId", conflictId), accountId);
+        return response;
     }
 
     private CompromiseDraft myOpenDraft(Long conflictId, Long draftId, Long accountId) {

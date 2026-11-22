@@ -46,6 +46,9 @@ class AiStabilityTest extends Be2ApiTestSupport {
     @MockitoBean
     AiServerPort aiServer;
 
+    @org.springframework.test.context.bean.override.mockito.MockitoSpyBean
+    com.fiveoutoffive.moa_backend.global.websocket.RealtimePublisher realtime;
+
     @Autowired
     AiGateway gateway;
 
@@ -397,6 +400,24 @@ class AiStabilityTest extends Be2ApiTestSupport {
         org.mockito.Mockito.verify(aiServer, org.mockito.Mockito.times(1)).post(eq("/v1/compromises"), any(), eq(AiCompromisePayload.class));
         assertThat(used("COMPROMISE")).isEqualTo(1);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM compromise_draft WHERE conflict_id = ?", Integer.class, conflictId)).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("절충안: 생성(→PROPOSED)과 폐기(→REDETECTED)도 다른 멤버 화면이 바뀌도록 CONFLICT_CHANGED 를 보낸다. 같은 초안 재요청은 상태가 안 바뀌어 안 보낸다")
+    void draftStatusChangeIsBroadcast() throws Exception {
+        Long conflictId = setUpConflict();
+        String path = room + "/conflicts/" + conflictId + "/compromise-drafts";
+        java.util.Map<String, Object> payload = java.util.Map.of("conflictId", conflictId);
+
+        Long draftId = post(member, path).ok().id("$.data.draftId");
+        org.mockito.Mockito.verify(realtime, org.mockito.Mockito.times(1)).toRoom(eq(roomId), eq("CONFLICT_CHANGED"), eq(payload), eq(member.id()));
+
+        post(member, path).ok();
+        org.mockito.Mockito.verify(realtime, org.mockito.Mockito.times(1)).toRoom(eq(roomId), eq("CONFLICT_CHANGED"), eq(payload), eq(member.id()));
+
+        post(member, path + "/" + draftId + "/discard").ok();
+        org.mockito.Mockito.verify(realtime, org.mockito.Mockito.times(2)).toRoom(eq(roomId), eq("CONFLICT_CHANGED"), eq(payload), eq(member.id()));
+        assertThat(jdbc.queryForObject("SELECT status FROM card_conflict WHERE id = ?", String.class, conflictId)).isEqualTo("REDETECTED");
     }
 
     @Test
