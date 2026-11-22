@@ -20,6 +20,7 @@ import com.fiveoutoffive.moa_backend.room.application.service.RoomAccessService;
 import com.fiveoutoffive.moa_backend.room.domain.event.RoomCreatedEvent;
 import com.fiveoutoffive.moa_backend.room.domain.model.Room;
 import com.fiveoutoffive.moa_backend.room.domain.repository.RoomRepository;
+import com.fiveoutoffive.moa_backend.room.exception.RoomErrorCode;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -64,7 +65,7 @@ public class DashboardService implements DashboardUseCase {
 
     @Override
     public DashboardResponse addWidget(Long accountId, Long roomId, WidgetPlacement placement) {
-        access.requireMember(roomId, accountId);
+        lockLayout(roomId, accountId);
         if (placement.widgetType() == null) {
             throw new BusinessException(GlobalErrorCode.INVALID_REQUEST);
         }
@@ -85,7 +86,7 @@ public class DashboardService implements DashboardUseCase {
 
     @Override
     public DashboardResponse removeWidget(Long accountId, Long roomId, Long widgetId) {
-        access.requireMember(roomId, accountId);
+        lockLayout(roomId, accountId);
         List<RoomWidget> widgets = widgetRepository.findByRoomId(roomId);
         if (widgets.stream().noneMatch(w -> w.getId().equals(widgetId))) {
             throw new BusinessException(DashboardErrorCode.DASHBOARD_WIDGET_NOT_FOUND);
@@ -99,7 +100,7 @@ public class DashboardService implements DashboardUseCase {
 
     @Override
     public DashboardResponse updateLayout(Long accountId, Long roomId, List<WidgetPlacement> placements) {
-        access.requireMember(roomId, accountId);
+        lockLayout(roomId, accountId);
         Map<Long, RoomWidget> widgets = widgetRepository.findByRoomId(roomId).stream().collect(Collectors.toMap(RoomWidget::getId, Function.identity()));
         Map<Long, WidgetPlacement> incoming = new HashMap<>();
         for (WidgetPlacement placement : placements) {
@@ -118,7 +119,7 @@ public class DashboardService implements DashboardUseCase {
 
     @Override
     public DashboardResponse reset(Long accountId, Long roomId) {
-        access.requireMember(roomId, accountId);
+        lockLayout(roomId, accountId);
         replaceAll(roomId, accountId, DEFAULT_LAYOUT);
         return changed(roomId, accountId);
     }
@@ -136,7 +137,7 @@ public class DashboardService implements DashboardUseCase {
 
     @Override
     public DashboardResponse applyRecommendation(Long accountId, Long roomId, List<WidgetPlacement> placements) {
-        access.requireMember(roomId, accountId);
+        lockLayout(roomId, accountId);
         validate(placements);
         String snapshot = jsonMapper.writeValueAsString(currentPlacements(roomId));
         snapshotRepository.deleteByRoomId(roomId);
@@ -149,7 +150,7 @@ public class DashboardService implements DashboardUseCase {
 
     @Override
     public DashboardResponse undoRecommendation(Long accountId, Long roomId) {
-        access.requireMember(roomId, accountId);
+        lockLayout(roomId, accountId);
         RoomLayoutSnapshot snapshot = snapshotRepository.findByRoomId(roomId).orElseThrow(() -> new BusinessException(DashboardErrorCode.DASHBOARD_UNDO_NOT_AVAILABLE));
         WidgetPlacement[] placements = jsonMapper.readValue(snapshot.getLayoutJson(), WidgetPlacement[].class);
         replaceAll(roomId, accountId, List.of(placements));
@@ -160,6 +161,15 @@ public class DashboardService implements DashboardUseCase {
     @Override
     public void onRoomCreated(RoomCreatedEvent event) {
         DEFAULT_LAYOUT.forEach(p -> save(event.roomId(), event.ownerAccountId(), p));
+    }
+
+    /**
+     * 배치를 바꾸는 요청은 방 행을 잠가 차례로 처리한다. 잠그지 않으면 거의 동시에 들어온 두 저장이 둘 다 예전 배치로
+     * 검사를 통과해 위젯이 겹친 채 저장되고, layoutVersion 도 같은 값이 두 번 나온다. 늦은 쪽은 앞 저장이 끝난 배치로 검사한다.
+     */
+    private void lockLayout(Long roomId, Long accountId) {
+        access.requireMember(roomId, accountId);
+        roomRepository.findLockedById(roomId).orElseThrow(() -> new BusinessException(RoomErrorCode.ROOM_NOT_FOUND));
     }
 
     private void replaceAll(Long roomId, Long accountId, List<WidgetPlacement> placements) {

@@ -236,4 +236,32 @@ class DashboardApiTest extends Be2ApiTestSupport {
         assertThat(sendTogether(() -> post(owner, path, body), () -> post(member, path, body))).containsExactlyInAnyOrder(200, 409);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM room_widget WHERE room_id = ? AND widget_type = 'VOTE'", Integer.class, roomId)).isEqualTo(1);
     }
+
+    @Test
+    @DisplayName("두 사람이 동시에 다른 위젯을 같은 자리로 옮기면 하나만 저장되고(겹침 없음), layoutVersion 은 성공한 만큼 오른다")
+    void moveIntoSameSpotTogether() throws Exception {
+        Member owner = newMember("방장");
+        Member member = newMember("멤버");
+        Long roomId = newRoom(owner, member);
+        String base = "/rooms/" + roomId + "/dashboard";
+        Response initial = get(owner, base).ok();
+        int v0 = initial.<Integer>read("$.data.layoutVersion");
+        Long mood = initial.first("$.data.widgets[?(@.widgetType=='MOOD')].widgetId");
+        Long briefing = initial.first("$.data.widgets[?(@.widgetType=='CATCHUP_BRIEFING')].widgetId");
+
+        int rounds = 10;
+        for (int i = 0; i < rounds; i++) {
+            int y = 12 + i * 4;
+            String moveMood = "{\"widgets\":[{\"widgetId\":%d,\"x\":0,\"y\":%d,\"w\":3,\"h\":3}]}".formatted(mood, y);
+            String moveBriefing = "{\"widgets\":[{\"widgetId\":%d,\"x\":0,\"y\":%d,\"w\":3,\"h\":3}]}".formatted(briefing, y);
+            assertThat(sendTogether(() -> put(owner, base + "/layout", moveMood), () -> put(member, base + "/layout", moveBriefing)))
+                    .as("round %d", i).containsExactlyInAnyOrder(200, 409);
+        }
+
+        assertThat(jdbc.queryForObject("""
+                SELECT count(*) FROM room_widget a JOIN room_widget b ON a.room_id = b.room_id AND a.id < b.id
+                WHERE a.room_id = ? AND a.pos_x < b.pos_x + b.width AND b.pos_x < a.pos_x + a.width
+                  AND a.pos_y < b.pos_y + b.height AND b.pos_y < a.pos_y + a.height""", Integer.class, roomId)).isZero();
+        assertThat(get(owner, base).ok().<Integer>read("$.data.layoutVersion")).isEqualTo(v0 + rounds);
+    }
 }
