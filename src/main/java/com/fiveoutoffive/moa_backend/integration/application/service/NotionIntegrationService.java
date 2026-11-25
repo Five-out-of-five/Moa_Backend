@@ -105,22 +105,25 @@ public class NotionIntegrationService implements NotionIntegrationUseCase {
         String[] parts = value.split(STATE_SEPARATOR);
         Long roomId = Long.valueOf(parts[0]);
         Long accountId = Long.valueOf(parts[1]);
-        String settings = frontendUrl + "/rooms/" + roomId + "/settings/integrations";
+        // 프론트 워크스페이스 관리 화면. 연동 설정은 그 안의 연동 탭이다.
+        String room = frontendUrl + "/workspaces/manage?room=" + roomId;
+        String integrations = room + "&tab=integrations";
         if (code == null || code.isBlank()) {
-            // 노션 연결 화면에서 취소했다(error=access_denied, code 없음). 연결하지 않고 설정 화면으로 돌려보낸다.
-            return settings + "?notion=cancelled";
+            // 노션 연결 화면에서 취소했다(error=access_denied, code 없음). 연결하지 않고 연동 탭으로 돌려보낸다.
+            return integrations + "&notion=cancelled";
         }
         if (!access.isOwner(roomId, accountId)) {
-            throw new BusinessException(RoomErrorCode.ROOM_OWNER_ONLY);
+            // 연결을 시작한 뒤 방장이 아니게 됐다. 연동 탭은 방장 전용이라 같은 방의 기본 탭으로 보낸다.
+            return room + "&notion=error&code=" + RoomErrorCode.ROOM_OWNER_ONLY.getCode();
         }
         try {
             var token = notionClient.exchangeCode(code, clientId, clientSecret, redirectUri);
             NotionIntegration.NotionIntegrationBuilder builder = repository.findByRoomId(roomId).map(NotionIntegration::toBuilder).orElseGet(() -> NotionIntegration.builder().roomId(roomId).createdByAccountId(accountId).exportMode(NotionExportMode.MANUAL));
             repository.save(builder.accessTokenEnc(cipher.encrypt(token.path("access_token").asString(""))).notionWorkspaceId(token.path("workspace_id").asString(null)).notionWorkspaceName(token.path("workspace_name").asString(null)).enabled(true).tokenExpiredAt(null).build());
-            return settings + "?notion=connected";
+            return integrations + "&notion=connected";
         } catch (Exception e) {
             log.warn("[Notion] 연결 실패: {}", e.getMessage());
-            return settings + "?notion=error&code=" + IntegrationErrorCode.INTEGRATION_NOTION_AUTH_EXPIRED.getCode();
+            return integrations + "&notion=error&code=" + IntegrationErrorCode.INTEGRATION_NOTION_AUTH_EXPIRED.getCode();
         }
     }
 

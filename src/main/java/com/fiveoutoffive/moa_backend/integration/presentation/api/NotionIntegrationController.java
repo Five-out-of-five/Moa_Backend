@@ -62,7 +62,8 @@ public class NotionIntegrationController {
         try {
             target = useCase.callback(code, state);
         } catch (BusinessException e) {
-            target = frontendUrl + "/?notion=error&code=" + e.getErrorCode().getCode();
+            // state 가 없거나 틀림·만료·재사용이라 방을 알 수 없다. 방을 고르지 않은 워크스페이스 관리 화면으로 보낸다.
+            target = frontendUrl + "/workspaces/manage?notion=error&code=" + e.getErrorCode().getCode();
         }
         response.sendRedirect(target);
     }

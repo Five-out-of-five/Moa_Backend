@@ -9,6 +9,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
@@ -44,6 +45,9 @@ class IntegrationExternalApiTest extends Be2ApiTestSupport {
 
     @Autowired
     IntegrationCipher cipher;
+
+    @Value("${app.frontend-url}")
+    String front;
 
     Member owner;
     Long roomId;
@@ -92,7 +96,7 @@ class IntegrationExternalApiTest extends Be2ApiTestSupport {
                 .param("code", "c").param("state", "wrong")).andReturn().getResponse();
 
         assertThat(res.getStatus()).isEqualTo(302);
-        assertThat(res.getRedirectedUrl()).contains("notion=error").contains("INTEGRATION_NOTION_STATE_INVALID");
+        assertThat(res.getRedirectedUrl()).isEqualTo(front + "/workspaces/manage?notion=error&code=INTEGRATION_NOTION_STATE_INVALID");
     }
 
     @Test
@@ -105,7 +109,7 @@ class IntegrationExternalApiTest extends Be2ApiTestSupport {
 
         var res = mockMvc.perform(MockMvcRequestBuilders.get("/api/v1/integrations/notion/callback")
                 .param("code", "good-code").param("state", state)).andReturn().getResponse();
-        assertThat(res.getRedirectedUrl()).contains("/rooms/" + roomId + "/settings/integrations").contains("notion=connected");
+        assertThat(res.getRedirectedUrl()).isEqualTo(front + "/workspaces/manage?room=" + roomId + "&tab=integrations&notion=connected");
 
         Response connected = get(owner, notion).ok();
         assertThat(connected.<Boolean>read("$.data.connected")).isTrue();
@@ -113,11 +117,11 @@ class IntegrationExternalApiTest extends Be2ApiTestSupport {
 
         var reused = mockMvc.perform(MockMvcRequestBuilders.get("/api/v1/integrations/notion/callback")
                 .param("code", "good-code").param("state", state)).andReturn().getResponse();
-        assertThat(reused.getRedirectedUrl()).contains("INTEGRATION_NOTION_STATE_INVALID");
+        assertThat(reused.getRedirectedUrl()).isEqualTo(front + "/workspaces/manage?notion=error&code=INTEGRATION_NOTION_STATE_INVALID");
     }
 
     @Test
-    @DisplayName("콜백: 노션 화면에서 취소하면(code 없이 error=access_denied) 400 이 아니라 설정 화면으로 돌려보내고 연결하지 않는다")
+    @DisplayName("콜백: 노션 화면에서 취소하면(code 없이 error=access_denied) 400 이 아니라 연동 탭으로 돌려보내고 연결하지 않는다")
     void callbackCancelled() throws Exception {
         String url = post(owner, notion + "/authorize").ok().read("$.data.authorizeUrl");
         String state = url.replaceAll(".*[?&]state=([^&]+).*", "$1");
@@ -126,7 +130,7 @@ class IntegrationExternalApiTest extends Be2ApiTestSupport {
                 .param("error", "access_denied").param("state", state)).andReturn().getResponse();
 
         assertThat(res.getStatus()).isEqualTo(302);
-        assertThat(res.getRedirectedUrl()).contains("/rooms/" + roomId + "/settings/integrations").contains("notion=cancelled");
+        assertThat(res.getRedirectedUrl()).isEqualTo(front + "/workspaces/manage?room=" + roomId + "&tab=integrations&notion=cancelled");
         assertThat(get(owner, notion).ok().<Boolean>read("$.data.connected")).isFalse();
     }
 
@@ -137,7 +141,38 @@ class IntegrationExternalApiTest extends Be2ApiTestSupport {
                 .param("error", "access_denied")).andReturn().getResponse();
 
         assertThat(res.getStatus()).isEqualTo(302);
-        assertThat(res.getRedirectedUrl()).contains("notion=error").contains("INTEGRATION_NOTION_STATE_INVALID");
+        assertThat(res.getRedirectedUrl()).isEqualTo(front + "/workspaces/manage?notion=error&code=INTEGRATION_NOTION_STATE_INVALID");
+    }
+
+    @Test
+    @DisplayName("콜백: 노션 토큰 발급이 실패하면 연동 탭으로 돌려보내며 AUTH_EXPIRED 를 붙이고 연결하지 않는다")
+    void callbackTokenExchangeFails() throws Exception {
+        String url = post(owner, notion + "/authorize").ok().read("$.data.authorizeUrl");
+        String state = url.replaceAll(".*[?&]state=([^&]+).*", "$1");
+        willThrow(new HttpClientErrorException(HttpStatus.BAD_REQUEST)).given(notionClient).exchangeCode(eq("bad-code"), anyString(), anyString(), anyString());
+
+        var res = mockMvc.perform(MockMvcRequestBuilders.get("/api/v1/integrations/notion/callback")
+                .param("code", "bad-code").param("state", state)).andReturn().getResponse();
+
+        assertThat(res.getStatus()).isEqualTo(302);
+        assertThat(res.getRedirectedUrl()).isEqualTo(front + "/workspaces/manage?room=" + roomId + "&tab=integrations&notion=error&code=INTEGRATION_NOTION_AUTH_EXPIRED");
+        assertThat(get(owner, notion).ok().<Boolean>read("$.data.connected")).isFalse();
+    }
+
+    @Test
+    @DisplayName("콜백: 연결을 시작한 뒤 방장이 아니게 됐으면 같은 방의 기본 탭으로 돌려보내며 ROOM_OWNER_ONLY 를 붙이고 연결하지 않는다")
+    void callbackOwnerLost() throws Exception {
+        String url = post(owner, notion + "/authorize").ok().read("$.data.authorizeUrl");
+        String state = url.replaceAll(".*[?&]state=([^&]+).*", "$1");
+        jdbc.update("UPDATE room_member SET role = 'MEMBER' WHERE room_id = ? AND account_id = ?", roomId, owner.id());
+
+        var res = mockMvc.perform(MockMvcRequestBuilders.get("/api/v1/integrations/notion/callback")
+                .param("code", "good-code").param("state", state)).andReturn().getResponse();
+
+        assertThat(res.getStatus()).isEqualTo(302);
+        assertThat(res.getRedirectedUrl()).isEqualTo(front + "/workspaces/manage?room=" + roomId + "&notion=error&code=ROOM_OWNER_ONLY");
+        verify(notionClient, org.mockito.Mockito.never()).exchangeCode(anyString(), anyString(), anyString(), anyString());
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM notion_integration WHERE room_id = ?", Integer.class, roomId)).isZero();
     }
 
     // ---------- 노션 데이터베이스·설정 ----------
