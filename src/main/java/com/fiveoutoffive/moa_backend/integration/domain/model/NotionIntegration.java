@@ -35,6 +35,9 @@ public class NotionIntegration {
     /** 내보낼 노션 데이터베이스 ID */
     private String targetDatabaseId;
 
+    /** 내보낼 노션 데이터베이스 이름 (설정을 저장한 시점) */
+    private String targetDatabaseTitle;
+
     /** 수동 / 회차 종료 시 자동 (NOT NULL) */
     private NotionExportMode exportMode;
 
@@ -60,6 +63,7 @@ public class NotionIntegration {
             String notionWorkspaceId,
             String notionWorkspaceName,
             String targetDatabaseId,
+            String targetDatabaseTitle,
             NotionExportMode exportMode,
             Boolean enabled,
             LocalDateTime tokenExpiredAt,
@@ -73,6 +77,7 @@ public class NotionIntegration {
         this.notionWorkspaceId = notionWorkspaceId;
         this.notionWorkspaceName = notionWorkspaceName;
         this.targetDatabaseId = targetDatabaseId;
+        this.targetDatabaseTitle = targetDatabaseTitle;
         this.exportMode = exportMode;
         this.enabled = enabled;
         this.tokenExpiredAt = tokenExpiredAt;
@@ -89,6 +94,7 @@ public class NotionIntegration {
             String notionWorkspaceId,
             String notionWorkspaceName,
             String targetDatabaseId,
+            String targetDatabaseTitle,
             NotionExportMode exportMode,
             Boolean enabled,
             LocalDateTime tokenExpiredAt,
@@ -96,6 +102,6 @@ public class NotionIntegration {
             LocalDateTime createdAt,
             LocalDateTime updatedAt
     ) {
-        return new NotionIntegration(id, roomId, accessTokenEnc, notionWorkspaceId, notionWorkspaceName, targetDatabaseId, exportMode, enabled, tokenExpiredAt, createdByAccountId, createdAt, updatedAt);
+        return new NotionIntegration(id, roomId, accessTokenEnc, notionWorkspaceId, notionWorkspaceName, targetDatabaseId, targetDatabaseTitle, exportMode, enabled, tokenExpiredAt, createdByAccountId, createdAt, updatedAt);
     }
 }

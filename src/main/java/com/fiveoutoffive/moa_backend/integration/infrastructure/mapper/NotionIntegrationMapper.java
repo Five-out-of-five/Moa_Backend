@@ -23,6 +23,7 @@ public interface NotionIntegrationMapper {
                 jpaEntity.getNotionWorkspaceId(),
                 jpaEntity.getNotionWorkspaceName(),
                 jpaEntity.getTargetDatabaseId(),
+                jpaEntity.getTargetDatabaseTitle(),
                 jpaEntity.getExportMode(),
                 jpaEntity.getEnabled(),
                 jpaEntity.getTokenExpiredAt(),

@@ -44,6 +44,9 @@ public class NotionIntegrationJpaEntity {
     @Column(name = "target_database_id", length = 100)
     private String targetDatabaseId;
 
+    @Column(name = "target_database_title", columnDefinition = "TEXT")
+    private String targetDatabaseTitle;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "export_mode", nullable = false, length = 20)
     private NotionExportMode exportMode;
@@ -71,6 +74,7 @@ public class NotionIntegrationJpaEntity {
             String notionWorkspaceId,
             String notionWorkspaceName,
             String targetDatabaseId,
+            String targetDatabaseTitle,
             NotionExportMode exportMode,
             Boolean enabled,
             LocalDateTime tokenExpiredAt,
@@ -84,6 +88,7 @@ public class NotionIntegrationJpaEntity {
         this.notionWorkspaceId = notionWorkspaceId;
         this.notionWorkspaceName = notionWorkspaceName;
         this.targetDatabaseId = targetDatabaseId;
+        this.targetDatabaseTitle = targetDatabaseTitle;
         this.exportMode = exportMode;
         this.enabled = enabled;
         this.tokenExpiredAt = tokenExpiredAt;
