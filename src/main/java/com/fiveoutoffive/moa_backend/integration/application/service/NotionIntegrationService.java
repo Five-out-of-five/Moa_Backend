@@ -46,6 +46,8 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.client.RestClientException;
+import org.springframework.web.client.RestClientResponseException;
 
 /** 노션 단방향 내보내기. 같은 회차를 다시 내보내면 기존 페이지를 갱신한다. */
 @Slf4j
@@ -136,7 +138,12 @@ public class NotionIntegrationService implements NotionIntegrationUseCase {
     @Override
     public NotionIntegrationResponse update(Long accountId, Long roomId, NotionIntegrationUpdateCommand command) {
         access.requireOwner(roomId, accountId);
-        return toResponse(repository.save(require(roomId).toBuilder().targetDatabaseId(command.targetDatabaseId()).exportMode(command.exportMode()).build()));
+        NotionIntegration integration = require(roomId);
+        NotionDatabaseResponse target = findTargetDatabase(integration, command.targetDatabaseId());
+        if (!repository.updateExportSettings(integration.getId(), target.id(), target.title(), command.exportMode(), KstTime.nowUtc())) {
+            throw new BusinessException(IntegrationErrorCode.INTEGRATION_NOT_FOUND);
+        }
+        return toResponse(require(roomId));
     }
 
     @Override
@@ -207,6 +214,24 @@ public class NotionIntegrationService implements NotionIntegrationUseCase {
         }
     }
 
+    /** 대상 데이터베이스가 실제로 있는지 확인하고 이름을 가져온다. */
+    private NotionDatabaseResponse findTargetDatabase(NotionIntegration integration, String databaseId) {
+        try {
+            return notionClient.retrieveDatabase(cipher.decrypt(integration.getAccessTokenEnc()), databaseId);
+        } catch (RestClientResponseException e) {
+            switch (e.getStatusCode().value()) {
+                case 401 -> throw expired(integration);
+                // 400 은 ID 형식 오류, 403·404 는 없거나 연동에 공유되지 않은 데이터베이스
+                case 400, 403, 404 -> throw new BusinessException(IntegrationErrorCode.INTEGRATION_NOTION_DATABASE_NOT_FOUND);
+                default -> log.warn("[Notion] 데이터베이스 이름 조회 실패: {}", e.getStatusCode());
+            }
+        } catch (RestClientException e) {
+            log.warn("[Notion] 데이터베이스 이름 조회 실패: {}", e.getMessage());
+        }
+        // 노션의 일시 장애(429·5xx·연결 실패)로 설정 저장까지 막지는 않는다. 대상이 그대로면 알고 있던 이름을 유지한다.
+        return new NotionDatabaseResponse(databaseId, databaseId.equals(integration.getTargetDatabaseId()) ? integration.getTargetDatabaseTitle() : null);
+    }
+
     private String exportContent(BoardSession session) {
         List<IdeaCard> cards = cardRepository.findBySessionIdAndDeletedAtIsNullOrderBySortOrderAsc(session.getId());
         Set<Long> cardIds = cards.stream().map(IdeaCard::getId).collect(Collectors.toSet());
@@ -226,7 +251,7 @@ public class NotionIntegrationService implements NotionIntegrationUseCase {
     }
 
     private NotionIntegrationResponse toResponse(NotionIntegration i) {
-        return new NotionIntegrationResponse(true, i.getNotionWorkspaceName(), i.getTargetDatabaseId() == null ? null : new NotionIntegrationResponse.TargetDatabase(i.getTargetDatabaseId(), null), i.getExportMode(), i.getEnabled(), i.getTokenExpiredAt() != null);
+        return new NotionIntegrationResponse(true, i.getNotionWorkspaceName(), i.getTargetDatabaseId() == null ? null : new NotionIntegrationResponse.TargetDatabase(i.getTargetDatabaseId(), i.getTargetDatabaseTitle()), i.getExportMode(), i.getEnabled(), i.getTokenExpiredAt() != null);
     }
 
     private NotionExportResponse toResponse(NotionExportLog l) {

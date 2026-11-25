@@ -1,8 +1,10 @@
 package com.fiveoutoffive.moa_backend.integration.infrastructure.persistence;
 
+import com.fiveoutoffive.moa_backend.integration.domain.model.NotionExportMode;
 import com.fiveoutoffive.moa_backend.integration.domain.model.NotionIntegration;
 import com.fiveoutoffive.moa_backend.integration.domain.repository.NotionIntegrationRepository;
 import com.fiveoutoffive.moa_backend.integration.infrastructure.mapper.NotionIntegrationMapper;
+import java.time.LocalDateTime;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
@@ -34,6 +36,11 @@ public class NotionIntegrationRepositoryAdapter implements NotionIntegrationRepo
     @Override
     public void deleteById(Long id) {
         springDataRepository.deleteById(id);
+    }
+
+    @Override
+    public boolean updateExportSettings(Long id, String targetDatabaseId, String targetDatabaseTitle, NotionExportMode exportMode, LocalDateTime now) {
+        return springDataRepository.updateExportSettings(id, targetDatabaseId, targetDatabaseTitle, exportMode, now) > 0;
     }
 
     @Override

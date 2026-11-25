@@ -1,5 +1,6 @@
 package com.fiveoutoffive.moa_backend.integration;
 
+import com.fiveoutoffive.moa_backend.integration.application.result.NotionDatabaseResponse;
 import com.fiveoutoffive.moa_backend.integration.application.service.NotionClient;
 import com.fiveoutoffive.moa_backend.integration.application.service.SlackSender;
 import com.fiveoutoffive.moa_backend.integration.infrastructure.crypto.IntegrationCipher;
@@ -12,6 +13,9 @@ import org.springframework.http.HttpStatus;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 import org.springframework.web.client.HttpClientErrorException;
+import org.springframework.web.client.HttpServerErrorException;
+import org.springframework.web.client.ResourceAccessException;
+import org.springframework.web.client.RestClientException;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.util.List;
@@ -29,6 +33,7 @@ import static org.mockito.Mockito.verify;
 @DisplayName("16. Integration (외부 호출)")
 class IntegrationExternalApiTest extends Be2ApiTestSupport {
 
+    static final String SETTINGS = "{\"targetDatabaseId\":\"db-1\",\"exportMode\":\"ON_SESSION_CLOSE\"}";
     static final String WEBHOOK = "https://hooks.slack.com/services/T0000000/B0000000/abcdefghijklmnop";
 
     @MockitoBean
@@ -152,12 +157,86 @@ class IntegrationExternalApiTest extends Be2ApiTestSupport {
     @DisplayName("내보내기 설정 저장 후 조회에 반영된다")
     void updateSettings() throws Exception {
         connectNotion(null);
+        given(notionClient.retrieveDatabase("secret-token", "db-1")).willReturn(new NotionDatabaseResponse("db-1", "팀 회고"));
 
-        put(owner, notion, "{\"targetDatabaseId\":\"db-1\",\"exportMode\":\"ON_SESSION_CLOSE\"}").ok();
+        Response saved = put(owner, notion, SETTINGS).ok();
+        assertThat(saved.<String>read("$.data.targetDatabase.title")).isEqualTo("팀 회고");
 
         Response res = get(owner, notion).ok();
         assertThat(res.<String>read("$.data.exportMode")).isEqualTo("ON_SESSION_CLOSE");
         assertThat(res.<String>read("$.data.targetDatabase.id")).isEqualTo("db-1");
+        assertThat(res.<String>read("$.data.targetDatabase.title")).isEqualTo("팀 회고");
+        assertThat(res.<String>read("$.data.workspaceName")).isEqualTo("테스트 워크스페이스");
+    }
+
+    @Test
+    @DisplayName("내보내기 설정: 없거나 접근할 수 없는 DB 면 DATABASE_NOT_FOUND 이고 기존 설정이 남는다")
+    void updateSettingsDatabaseNotFound() throws Exception {
+        connectNotion("db-old");
+        for (HttpStatus status : List.of(HttpStatus.BAD_REQUEST, HttpStatus.FORBIDDEN, HttpStatus.NOT_FOUND)) {
+            willThrow(new HttpClientErrorException(status)).given(notionClient).retrieveDatabase("secret-token", "db-1");
+            put(owner, notion, SETTINGS).fails(409, "INTEGRATION_NOTION_DATABASE_NOT_FOUND");
+        }
+
+        Response res = get(owner, notion).ok();
+        assertThat(res.<String>read("$.data.targetDatabase.id")).isEqualTo("db-old");
+        assertThat(res.<String>read("$.data.exportMode")).isEqualTo("MANUAL");
+        assertThat(res.<Boolean>read("$.data.tokenExpired")).isFalse();
+    }
+
+    @Test
+    @DisplayName("내보내기 설정: 노션이 401 이면 AUTH_EXPIRED 이고 만료 표시가 남는다")
+    void updateSettingsExpired() throws Exception {
+        connectNotion(null);
+        willThrow(new HttpClientErrorException(HttpStatus.UNAUTHORIZED)).given(notionClient).retrieveDatabase("secret-token", "db-1");
+
+        put(owner, notion, SETTINGS).fails(409, "INTEGRATION_NOTION_AUTH_EXPIRED");
+
+        assertThat(get(owner, notion).ok().<Boolean>read("$.data.tokenExpired")).isTrue();
+    }
+
+    @Test
+    @DisplayName("내보내기 설정: 노션 일시 장애면 저장은 되고, 대상이 그대로면 이름을 유지하며 바뀌면 옛 이름을 남기지 않는다")
+    void updateSettingsNotionUnavailable() throws Exception {
+        connectNotion(null);
+        given(notionClient.retrieveDatabase("secret-token", "db-1")).willReturn(new NotionDatabaseResponse("db-1", "팀 회고"));
+        put(owner, notion, SETTINGS).ok();
+
+        for (RestClientException e : List.of(new HttpClientErrorException(HttpStatus.TOO_MANY_REQUESTS),
+                new HttpServerErrorException(HttpStatus.SERVICE_UNAVAILABLE), new ResourceAccessException("timeout"))) {
+            willThrow(e).given(notionClient).retrieveDatabase(anyString(), anyString());
+            put(owner, notion, "{\"targetDatabaseId\":\"db-1\",\"exportMode\":\"MANUAL\"}").ok();
+        }
+        Response same = get(owner, notion).ok();
+        assertThat(same.<String>read("$.data.targetDatabase.title")).isEqualTo("팀 회고");
+        assertThat(same.<String>read("$.data.exportMode")).isEqualTo("MANUAL");
+        assertThat(same.<Boolean>read("$.data.tokenExpired")).isFalse();
+
+        Response changed = put(owner, notion, "{\"targetDatabaseId\":\"db-2\",\"exportMode\":\"MANUAL\"}").ok();
+        assertThat(changed.<String>read("$.data.targetDatabase.id")).isEqualTo("db-2");
+        assertThat(changed.<String>read("$.data.targetDatabase.title")).isNull();
+    }
+
+    @Test
+    @DisplayName("내보내기 설정: 노션에서 이름을 조회하는 사이 다시 연결돼도 새 토큰을 덮어쓰지 않고, 해제되면 되살리지 않는다")
+    void updateSettingsKeepsReconnected() throws Exception {
+        connectNotion(null);
+        byte[] newToken = cipher.encrypt("new-token");
+        duringLookup("UPDATE notion_integration SET access_token_enc = ? WHERE room_id = ?", newToken, roomId);
+        put(owner, notion, SETTINGS).ok();
+        assertThat(jdbc.queryForObject("SELECT access_token_enc FROM notion_integration WHERE room_id = ?", byte[].class, roomId)).isEqualTo(newToken);
+
+        duringLookup("DELETE FROM notion_integration WHERE room_id = ?", roomId);
+        put(owner, notion, SETTINGS).fails(404, "INTEGRATION_NOT_FOUND");
+        assertThat(get(owner, notion).ok().<Boolean>read("$.data.connected")).isFalse();
+    }
+
+    /** 이름을 조회하는 동안 다른 요청이 먼저 커밋한 상황을 만든다. 다른 스레드라 저장 트랜잭션과 섞이지 않는다. */
+    private void duringLookup(String sql, Object... args) {
+        org.mockito.BDDMockito.willAnswer(call -> {
+            java.util.concurrent.CompletableFuture.runAsync(() -> jdbc.update(sql, args)).get(5, java.util.concurrent.TimeUnit.SECONDS);
+            return new NotionDatabaseResponse("db-1", "팀 회고");
+        }).given(notionClient).retrieveDatabase(anyString(), anyString());
     }
 
     // ---------- 노션 내보내기 ----------

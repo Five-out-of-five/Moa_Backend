@@ -32,8 +32,12 @@ public class NotionClient {
         tools.jackson.databind.JsonNode body = authed(token).post().uri(API + "/search").contentType(MediaType.APPLICATION_JSON)
                 .body(Map.of("filter", Map.of("value", "database", "property", "object"))).retrieve().body(tools.jackson.databind.JsonNode.class);
         List<NotionDatabaseResponse> result = new ArrayList<>();
-        body.path("results").forEach(node -> result.add(new NotionDatabaseResponse(node.path("id").asString(""), node.path("title").path(0).path("plain_text").asString(""))));
+        body.path("results").forEach(node -> result.add(toDatabase(node)));
         return result;
+    }
+
+    public NotionDatabaseResponse retrieveDatabase(String token, String databaseId) {
+        return toDatabase(authed(token).get().uri(API + "/databases/{id}", databaseId).retrieve().body(tools.jackson.databind.JsonNode.class));
     }
 
     public String createPage(String token, String databaseId, String title, String content) {
@@ -49,6 +53,13 @@ public class NotionClient {
 
     private RestClient authed(String token) {
         return restClient.mutate().defaultHeader(HttpHeaders.AUTHORIZATION, "Bearer " + token).defaultHeader("Notion-Version", VERSION).build();
+    }
+
+    /** 목록과 단건 조회가 같은 이름을 주도록 함께 쓴다. 서식이 섞인 제목은 여러 조각으로 오므로 이어 붙인다. */
+    private NotionDatabaseResponse toDatabase(tools.jackson.databind.JsonNode node) {
+        StringBuilder title = new StringBuilder();
+        node.path("title").forEach(part -> title.append(part.path("plain_text").asString("")));
+        return new NotionDatabaseResponse(node.path("id").asString(""), title.toString());
     }
 
     private Map<String, Object> text(String content) {
