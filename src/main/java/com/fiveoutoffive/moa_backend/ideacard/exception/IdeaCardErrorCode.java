@@ -13,7 +13,7 @@ public enum IdeaCardErrorCode implements BaseErrorCode {
     // 삭제된 카드 포함
     CARD_NOT_FOUND(HttpStatus.NOT_FOUND, "CARD_NOT_FOUND", "카드를 찾을 수 없습니다."),
     CARD_NOT_WRITER(HttpStatus.FORBIDDEN, "CARD_NOT_WRITER", "작성자만 할 수 있습니다."),
-    CARD_SESSION_CLOSED(HttpStatus.CONFLICT, "CARD_SESSION_CLOSED", "마감된 회차의 카드는 변경할 수 없습니다."),
+    CARD_SESSION_CLOSED(HttpStatus.CONFLICT, "CARD_SESSION_CLOSED", "마감된 회차에는 카드를 추가하거나 변경할 수 없습니다."),
     // 최신 상태를 함께 반환
     CARD_VERSION_CONFLICT(HttpStatus.CONFLICT, "CARD_VERSION_CONFLICT", "다른 멤버가 먼저 변경했습니다."),
     CARD_LOCKED(HttpStatus.CONFLICT, "CARD_LOCKED", "다른 멤버가 편집 중입니다."),

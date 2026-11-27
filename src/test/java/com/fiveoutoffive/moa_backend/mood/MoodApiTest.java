@@ -1,9 +1,12 @@
 package com.fiveoutoffive.moa_backend.mood;
 
 import com.fiveoutoffive.moa_backend.support.Be2ApiTestSupport;
+import com.jayway.jsonpath.JsonPath;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -113,5 +116,36 @@ class MoodApiTest extends Be2ApiTestSupport {
 
         assertThat(statuses).containsExactly(200, 200);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM mood_status WHERE room_id = ? AND account_id = ?", Integer.class, roomId, owner.id())).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("한마디는 null 이거나 빼면 지워지고, 기분만 바꿀 때 다시 보내면 남는다")
+    void commentNullClears() throws Exception {
+        Member owner = newMember("방장");
+        Long roomId = newRoom(owner);
+        String me = "/rooms/" + roomId + "/moods/me";
+
+        put(owner, me, "{\"mood\":\"GOOD\",\"comment\":\"좋아요\"}").ok();
+        assertThat(put(owner, me, "{\"mood\":\"GOOD\",\"comment\":null}").ok().<Object>read("$.data.comment")).isNull();
+
+        put(owner, me, "{\"mood\":\"GOOD\",\"comment\":\"좋아요\"}").ok();
+        assertThat(put(owner, me, "{\"mood\":\"TIRED\"}").ok().<Object>read("$.data.comment")).isNull();
+
+        put(owner, me, "{\"mood\":\"GOOD\",\"comment\":\"유지\"}").ok();
+        Response kept = put(owner, me, "{\"mood\":\"NORMAL\",\"comment\":\"유지\"}").ok();
+        assertThat(kept.<String>read("$.data.mood")).isEqualTo("NORMAL");
+        assertThat(kept.<String>read("$.data.comment")).isEqualTo("유지");
+    }
+
+    @Test
+    @DisplayName("Swagger 에서 한마디(comment)는 null 을 허용한다고 나온다")
+    void commentNullableInSwagger() throws Exception {
+        String docs = mockMvc.perform(MockMvcRequestBuilders.get("/v3/api-docs")).andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        List<String> types = JsonPath.read(docs, "$.components.schemas.MoodUpsertRequest.properties.comment.type");
+        assertThat(types).containsExactlyInAnyOrder("string", "null");
+        assertThat(JsonPath.<Integer>read(docs, "$.components.schemas.MoodUpsertRequest.properties.comment.maxLength")).isEqualTo(50);
+        List<String> required = JsonPath.read(docs, "$.components.schemas.MoodUpsertRequest.required");
+        assertThat(required).containsExactly("mood");
     }
 }

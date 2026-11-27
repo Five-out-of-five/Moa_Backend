@@ -59,6 +59,16 @@ public class BoardSessionRepositoryAdapter implements BoardSessionRepository {
     }
 
     @Override
+    public Optional<BoardSession> findSharedById(Long id) {
+        return springDataRepository.findSharedById(id).map(boardSessionMapper::toDomain);
+    }
+
+    @Override
+    public Optional<BoardSession> findSharedInProgress(Long roomId) {
+        return springDataRepository.findSharedByRoomIdAndStatus(roomId, SessionStatus.IN_PROGRESS).map(boardSessionMapper::toDomain);
+    }
+
+    @Override
     public boolean closeIfInProgress(Long id, LocalDateTime closedAt, Long closedBy) {
         return springDataRepository.closeIf(id, closedAt, closedBy, SessionStatus.CLOSED, SessionStatus.IN_PROGRESS) == 1;
     }
