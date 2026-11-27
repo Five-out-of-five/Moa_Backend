@@ -100,8 +100,7 @@ public class IdeaCardService implements IdeaCardUseCase {
     @Override
     public IdeaCardDetailResponse create(Long accountId, Long roomId, IdeaCardCreateCommand command) {
         access.requireMember(roomId, accountId);
-        BoardSession session = sessionRepository.findFirstByRoomIdAndStatus(roomId, SessionStatus.IN_PROGRESS)
-                .orElseThrow(() -> new BusinessException(SessionErrorCode.SESSION_NONE_IN_PROGRESS));
+        BoardSession session = lockSessionForCreate(roomId, command.sessionId());
         List<Long> fileIds = command.fileIds() == null ? List.of() : command.fileIds();
         // 같은 파일 ID 중복은 FileAttachSupport 가 400 으로 막는다.
         fileAttachSupport.requireAttachable(roomId, accountId, fileIds, FileGroup.CARD_ATTACHMENT, 0);
@@ -320,6 +319,24 @@ public class IdeaCardService implements IdeaCardUseCase {
         if (!EMOJIS.contains(emoji)) {
             throw new BusinessException(GlobalErrorCode.INVALID_REQUEST);
         }
+    }
+
+    /**
+     * 카드를 넣을 회차를 공유 잠금으로 읽는다. 카드 저장이 끝날 때까지 그 회차는 마감되지 않으므로(마감이 기다린다)
+     * 마감된 회차에 카드가 들어가거나, 마감 후 처리(브리핑·노션 내보내기)에서 카드가 빠지지 않는다.
+     * sessionId 를 주면 그 회차가 아직 진행 중이어야 한다. 그사이 마감되고 새 회차가 시작됐어도 새 회차로 옮기지 않는다.
+     */
+    private BoardSession lockSessionForCreate(Long roomId, Long sessionId) {
+        if (sessionId == null) {
+            return sessionRepository.findSharedInProgress(roomId)
+                    .orElseThrow(() -> new BusinessException(SessionErrorCode.SESSION_NONE_IN_PROGRESS));
+        }
+        BoardSession session = sessionRepository.findSharedById(sessionId).filter(s -> s.getRoomId().equals(roomId))
+                .orElseThrow(() -> new BusinessException(SessionErrorCode.SESSION_NOT_FOUND));
+        if (session.getStatus() != SessionStatus.IN_PROGRESS) {
+            throw new BusinessException(IdeaCardErrorCode.CARD_SESSION_CLOSED);
+        }
+        return session;
     }
 
     private void requireSession(Long roomId, Long sessionId) {

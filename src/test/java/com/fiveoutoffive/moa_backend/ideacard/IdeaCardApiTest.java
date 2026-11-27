@@ -5,13 +5,18 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.util.List;
+import javax.sql.DataSource;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 @DisplayName("08. IdeaCard")
 class IdeaCardApiTest extends Be2ApiTestSupport {
+
+    @Autowired
+    DataSource dataSource;
 
     Member owner;
     Member member;
@@ -40,6 +45,82 @@ class IdeaCardApiTest extends Be2ApiTestSupport {
     void noSession() throws Exception {
         post(owner, cards, """
                 {"cardType":"KEEP","title":"카드"}""").fails(409, "SESSION_NONE_IN_PROGRESS");
+    }
+
+    @Test
+    @DisplayName("sessionId 를 보내면 그 회차가 진행 중일 때만 등록되고, 마감 뒤 새 회차가 시작돼도 새 회차로 옮겨 넣지 않는다")
+    void createWithSessionId() throws Exception {
+        Long first = startSession();
+        Long cardId = post(member, cards, """
+                {"cardType":"KEEP","title":"첫 회차 카드","sessionId":%d}""".formatted(first)).ok().id("$.data.cardId");
+        assertThat(get(owner, cards + "/" + cardId).ok().id("$.data.sessionId")).isEqualTo(first);
+
+        post(owner, "/rooms/" + roomId + "/sessions/" + first + "/close").ok();
+        post(member, cards, """
+                {"cardType":"KEEP","title":"마감 뒤","sessionId":%d}""".formatted(first)).fails(409, "CARD_SESSION_CLOSED");
+
+        Long second = startSession();
+        post(member, cards, """
+                {"cardType":"KEEP","title":"새 회차 시작 뒤","sessionId":%d}""".formatted(first)).fails(409, "CARD_SESSION_CLOSED");
+        Integer inSecond = jdbc.queryForObject("SELECT count(*) FROM idea_card WHERE session_id = ?", Integer.class, second);
+        assertThat(inSecond).isZero();
+
+        // sessionId 를 빼면 예전처럼 진행 중 회차에 넣는다.
+        Long fallback = post(member, cards, """
+                {"cardType":"KEEP","title":"회차 생략"}""").ok().id("$.data.cardId");
+        assertThat(get(owner, cards + "/" + fallback).ok().id("$.data.sessionId")).isEqualTo(second);
+    }
+
+    @Test
+    @DisplayName("sessionId 가 없는 회차이거나 다른 방 회차면 SESSION_NOT_FOUND")
+    void createWithForeignSessionId() throws Exception {
+        startSession();
+        Member other = newMember("다른 방장");
+        Long otherRoom = newRoom(other);
+        Long otherSession = post(other, "/rooms/" + otherRoom + "/sessions", "{\"title\":\"남의 회차\"}").ok().id("$.data.sessionId");
+
+        post(member, cards, """
+                {"cardType":"KEEP","title":"남의 회차","sessionId":%d}""".formatted(otherSession)).fails(404, "SESSION_NOT_FOUND");
+        post(member, cards, """
+                {"cardType":"KEEP","title":"없는 회차","sessionId":999999999}""").fails(404, "SESSION_NOT_FOUND");
+    }
+
+    @Test
+    @DisplayName("회차 마감과 카드 등록이 겹치면 등록이 마감을 기다렸다가 거절된다 (마감된 회차에 카드가 들어가지 않는다)")
+    void createWaitsForClosingSession() throws Exception {
+        for (boolean withSessionId : new boolean[] {true, false}) {
+            Long sessionId = startSession();
+            String body = withSessionId
+                    ? "{\"cardType\":\"KEEP\",\"title\":\"겹친 카드\",\"sessionId\":%d}".formatted(sessionId)
+                    : "{\"cardType\":\"KEEP\",\"title\":\"겹친 카드\"}";
+            java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newSingleThreadExecutor();
+            try (java.sql.Connection closing = dataSource.getConnection()) {
+                // 마감이 회차 행을 바꾸고 아직 커밋하지 않은 상태를 만든다.
+                closing.setAutoCommit(false);
+                try (java.sql.PreparedStatement update = closing.prepareStatement(
+                        "UPDATE board_session SET status = 'CLOSED', closed_at = now() AT TIME ZONE 'UTC', closed_by_account_id = ? WHERE id = ?")) {
+                    update.setLong(1, owner.id());
+                    update.setLong(2, sessionId);
+                    assertThat(update.executeUpdate()).isEqualTo(1);
+                }
+
+                java.util.concurrent.Future<Response> creating = pool.submit(() -> post(member, cards, body));
+                Thread.sleep(700);
+                assertThat(creating.isDone()).as("마감이 끝나기 전에는 카드 등록이 기다려야 한다").isFalse();
+
+                closing.commit();
+                Response res = creating.get(20, java.util.concurrent.TimeUnit.SECONDS);
+                if (withSessionId) {
+                    res.fails(409, "CARD_SESSION_CLOSED");
+                } else {
+                    res.fails(409, "SESSION_NONE_IN_PROGRESS");
+                }
+            } finally {
+                pool.shutdownNow();
+            }
+            Integer cardsInClosed = jdbc.queryForObject("SELECT count(*) FROM idea_card WHERE session_id = ?", Integer.class, sessionId);
+            assertThat(cardsInClosed).isZero();
+        }
     }
 
     @Test
