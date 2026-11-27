@@ -138,6 +138,36 @@ class FileApiTest extends Be2ApiTestSupport {
     }
 
     @Test
+    @DisplayName("파일 종류 필터는 확장자로 나눈다: 문서에 txt·md 포함, zip 은 압축만. 전체 개수도 같은 기준")
+    void roomFilesFileTypeFilter() throws Exception {
+        Member owner = newMember("방장");
+        Long roomId = newRoom(owner);
+        byte[] body = "hello".getBytes(StandardCharsets.UTF_8);
+        // mimeType 은 브라우저마다 다르게 오는 실제 값을 쓴다 (윈도우 크롬의 zip, md 등)
+        Long pdf = upload(owner, roomId, "CARD_ATTACHMENT", "report.pdf", "application/pdf", body).ok().id("$.data.fileId");
+        Long txt = upload(owner, roomId, "CARD_ATTACHMENT", "memo.txt", "text/plain", body).ok().id("$.data.fileId");
+        Long md = upload(owner, roomId, "CARD_ATTACHMENT", "README.MD", "text/markdown", body).ok().id("$.data.fileId");
+        Long zip = upload(owner, roomId, "CARD_ATTACHMENT", "src.zip", "application/x-zip-compressed", body).ok().id("$.data.fileId");
+        Long png = upload(owner, roomId, "CARD_ATTACHMENT", "shot.png", "image/png", new byte[]{1, 2, 3}).ok().id("$.data.fileId");
+        post(owner, "/rooms/" + roomId + "/sessions", """
+                {"title":"1회차"}""").ok();
+        post(owner, "/rooms/" + roomId + "/idea-cards", """
+                {"cardType":"KEEP","title":"첨부 카드","fileIds":[%d,%d,%d,%d,%d]}""".formatted(pdf, txt, md, zip, png)).ok();
+
+        List<Number> documents = get(owner, "/rooms/" + roomId + "/files?fileType=DOCUMENT").ok().read("$.data.content[*].fileId");
+        List<Number> archives = get(owner, "/rooms/" + roomId + "/files?fileType=ARCHIVE").ok().read("$.data.content[*].fileId");
+        List<Number> images = get(owner, "/rooms/" + roomId + "/files?fileType=IMAGE").ok().read("$.data.content[*].fileId");
+
+        assertThat(documents).extracting(Number::longValue).containsExactlyInAnyOrder(pdf, txt, md);
+        assertThat(archives).extracting(Number::longValue).containsExactly(zip);
+        assertThat(images).extracting(Number::longValue).containsExactly(png);
+
+        Response page = get(owner, "/rooms/" + roomId + "/files?fileType=DOCUMENT&size=1").ok();
+        assertThat(page.<Integer>read("$.data.totalElements")).isEqualTo(3);
+        assertThat(page.<Integer>read("$.data.totalPages")).isEqualTo(3);
+    }
+
+    @Test
     @DisplayName("방 파일 목록에는 연결된 첨부만 출처와 함께 나오고, 원본 카드가 삭제되면 빠진다")
     void roomFiles() throws Exception {
         Member owner = newMember("방장");
