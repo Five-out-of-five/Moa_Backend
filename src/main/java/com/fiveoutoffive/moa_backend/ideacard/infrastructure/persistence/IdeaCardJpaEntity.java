@@ -14,6 +14,7 @@ import jakarta.persistence.Table;
 import jakarta.persistence.Version;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.util.UUID;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -71,6 +72,12 @@ public class IdeaCardJpaEntity {
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
 
+    @Column(name = "request_id")
+    private UUID requestId;
+
+    @Column(name = "request_hash", length = 64)
+    private String requestHash;
+
     // 도메인 모델의 값을 받아 JPA 엔티티를 만든다 (MapStruct 가 사용)
     public IdeaCardJpaEntity(
             Long id,
@@ -86,7 +93,9 @@ public class IdeaCardJpaEntity {
             LocalDateTime editedAt,
             LocalDateTime deletedAt,
             LocalDateTime createdAt,
-            LocalDateTime updatedAt
+            LocalDateTime updatedAt,
+            UUID requestId,
+            String requestHash
     ) {
         this.id = id;
         this.roomId = roomId;
@@ -102,6 +111,8 @@ public class IdeaCardJpaEntity {
         this.deletedAt = deletedAt;
         this.createdAt = createdAt;
         this.updatedAt = updatedAt;
+        this.requestId = requestId;
+        this.requestHash = requestHash;
     }
 
     // DB 기본값과 같은 값을 채운다. JPA 는 null 을 그대로 INSERT 해서 DB 기본값이 쓰이지 않기 때문이다.
