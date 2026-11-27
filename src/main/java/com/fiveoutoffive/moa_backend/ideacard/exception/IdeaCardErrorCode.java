@@ -19,6 +19,8 @@ public enum IdeaCardErrorCode implements BaseErrorCode {
     CARD_LOCKED(HttpStatus.CONFLICT, "CARD_LOCKED", "다른 멤버가 편집 중입니다."),
     CARD_NOT_AGENDA(HttpStatus.BAD_REQUEST, "CARD_NOT_AGENDA", "안건 카드에서만 투표를 만들 수 있습니다."),
     CARD_ALREADY_CONVERTED(HttpStatus.CONFLICT, "CARD_ALREADY_CONVERTED", "이미 업무로 전환된 카드입니다."),
+    // 등록 재시도 키를 다른 내용의 요청에 다시 썼다
+    CARD_REQUEST_ID_CONFLICT(HttpStatus.CONFLICT, "CARD_REQUEST_ID_CONFLICT", "같은 요청 ID로 다른 내용의 카드가 이미 등록되었습니다."),
     CARD_VOTE_ALREADY_OPEN(HttpStatus.CONFLICT, "CARD_VOTE_ALREADY_OPEN", "이 안건에 진행 중인 투표가 이미 있습니다."),
     COMMENT_NOT_FOUND(HttpStatus.NOT_FOUND, "COMMENT_NOT_FOUND", "댓글을 찾을 수 없습니다."),
     COMMENT_NOT_WRITER(HttpStatus.FORBIDDEN, "COMMENT_NOT_WRITER", "본인 댓글만 수정·삭제할 수 있습니다.");

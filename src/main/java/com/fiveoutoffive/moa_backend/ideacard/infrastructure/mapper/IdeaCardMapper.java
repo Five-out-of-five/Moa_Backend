@@ -30,7 +30,9 @@ public interface IdeaCardMapper {
                 jpaEntity.getEditedAt(),
                 jpaEntity.getDeletedAt(),
                 jpaEntity.getCreatedAt(),
-                jpaEntity.getUpdatedAt()
+                jpaEntity.getUpdatedAt(),
+                jpaEntity.getRequestId(),
+                jpaEntity.getRequestHash()
         );
     }
 }

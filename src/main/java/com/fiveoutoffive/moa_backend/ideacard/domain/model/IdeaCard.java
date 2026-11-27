@@ -1,6 +1,7 @@
 package com.fiveoutoffive.moa_backend.ideacard.domain.model;
 
 import java.time.LocalDateTime;
+import java.util.UUID;
 import lombok.AccessLevel;
 import lombok.Builder;
 import lombok.Getter;
@@ -59,6 +60,12 @@ public class IdeaCard {
     /** 수정 시각 */
     private LocalDateTime updatedAt;
 
+    /** 등록 재시도 키 (프론트가 만든 UUID, 작성자별 유일). 키 없이 만든 카드는 null */
+    private UUID requestId;
+
+    /** 재시도 키로 처음 등록한 요청 본문의 SHA-256 */
+    private String requestHash;
+
     private IdeaCard(
             Long id,
             Long roomId,
@@ -73,7 +80,9 @@ public class IdeaCard {
             LocalDateTime editedAt,
             LocalDateTime deletedAt,
             LocalDateTime createdAt,
-            LocalDateTime updatedAt
+            LocalDateTime updatedAt,
+            UUID requestId,
+            String requestHash
     ) {
         this.id = id;
         this.roomId = roomId;
@@ -89,6 +98,8 @@ public class IdeaCard {
         this.deletedAt = deletedAt;
         this.createdAt = createdAt;
         this.updatedAt = updatedAt;
+        this.requestId = requestId;
+        this.requestHash = requestHash;
     }
 
     /** 저장소에서 읽은 값으로 복원한다. 검증 없이 그대로 채운다. */
@@ -106,8 +117,10 @@ public class IdeaCard {
             LocalDateTime editedAt,
             LocalDateTime deletedAt,
             LocalDateTime createdAt,
-            LocalDateTime updatedAt
+            LocalDateTime updatedAt,
+            UUID requestId,
+            String requestHash
     ) {
-        return new IdeaCard(id, roomId, sessionId, cardType, title, content, writerAccountId, sortOrder, isAiGenerated, version, editedAt, deletedAt, createdAt, updatedAt);
+        return new IdeaCard(id, roomId, sessionId, cardType, title, content, writerAccountId, sortOrder, isAiGenerated, version, editedAt, deletedAt, createdAt, updatedAt, requestId, requestHash);
     }
 }

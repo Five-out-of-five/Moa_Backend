@@ -43,13 +43,18 @@ import com.fiveoutoffive.moa_backend.session.domain.model.BoardSession;
 import com.fiveoutoffive.moa_backend.session.domain.model.SessionStatus;
 import com.fiveoutoffive.moa_backend.session.domain.repository.BoardSessionRepository;
 import com.fiveoutoffive.moa_backend.session.exception.SessionErrorCode;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
@@ -100,18 +105,63 @@ public class IdeaCardService implements IdeaCardUseCase {
     @Override
     public IdeaCardDetailResponse create(Long accountId, Long roomId, IdeaCardCreateCommand command) {
         access.requireMember(roomId, accountId);
+        String requestHash = null;
+        if (command.requestId() != null) {
+            // 같은 키의 동시 요청은 여기서 줄을 선다. 앞 요청이 저장했으면 그 카드를 찾아 돌려주므로 카드는 하나만 생긴다.
+            // 회차 확인보다 먼저 한다. 처음 요청이 저장된 뒤 회차가 마감됐어도 재시도는 처음 카드를 받아야 한다.
+            cardRepository.lockCreateRequest(accountId, command.requestId());
+            requestHash = requestHash(roomId, command);
+            Optional<IdeaCard> saved = cardRepository.findByWriterAccountIdAndRequestId(accountId, command.requestId());
+            if (saved.isPresent()) {
+                return replay(roomId, accountId, saved.get(), requestHash);
+            }
+        }
         BoardSession session = lockSessionForCreate(roomId, command.sessionId());
         List<Long> fileIds = command.fileIds() == null ? List.of() : command.fileIds();
         // 같은 파일 ID 중복은 FileAttachSupport 가 400 으로 막는다.
         fileAttachSupport.requireAttachable(roomId, accountId, fileIds, FileGroup.CARD_ATTACHMENT, 0);
         IdeaCard card = cardRepository.save(IdeaCard.builder().roomId(roomId).sessionId(session.getId()).cardType(command.cardType()).title(command.title()).content(command.content())
-                .writerAccountId(accountId).sortOrder(cardRepository.findMaxSortOrder(session.getId(), command.cardType()) + 1).isAiGenerated(false).build());
+                .writerAccountId(accountId).sortOrder(cardRepository.findMaxSortOrder(session.getId(), command.cardType()) + 1).isAiGenerated(false)
+                .requestId(command.requestId()).requestHash(requestHash).build());
         for (int i = 0; i < fileIds.size(); i++) {
             fileRepository.save(CardFile.builder().cardId(card.getId()).fileId(fileIds.get(i)).sortOrder(i).build());
         }
         eventRecorder.record(roomId, BoardEventType.CARD_CREATED, accountId, null, BoardEventTargetType.CARD, card.getId(), card.getTitle());
         eventPublisher.publishEvent(new CardChangedEvent(roomId, card.getId(), true));
         return broadcastDetail(roomId, accountId, card, "CARD_CREATED");
+    }
+
+    /**
+     * 이미 저장된 재시도 요청. 새로 만들지 않고 처음 카드의 지금 상태를 돌려준다(이벤트·알림·첨부는 다시 하지 않는다).
+     * 같은 키로 다른 내용을 보냈으면 409, 처음 카드를 그사이 지웠으면 되살리지 않고 404.
+     */
+    private IdeaCardDetailResponse replay(Long roomId, Long accountId, IdeaCard card, String requestHash) {
+        if (!requestHash.equals(card.getRequestHash())) {
+            throw new BusinessException(IdeaCardErrorCode.CARD_REQUEST_ID_CONFLICT);
+        }
+        if (card.getDeletedAt() != null) {
+            throw new BusinessException(IdeaCardErrorCode.CARD_NOT_FOUND);
+        }
+        return assembler.detail(roomId, accountId, card);
+    }
+
+    /**
+     * 같은 요청인지 가리는 본문 해시. 방·유형·제목·내용·첨부(순서 포함)·회차를 넣는다.
+     * 내용 생략과 빈 문자열, 첨부 생략과 빈 배열은 같은 요청으로 본다(직렬화 차이로 409 가 나지 않게).
+     */
+    private static String requestHash(Long roomId, IdeaCardCreateCommand command) {
+        StringBuilder text = new StringBuilder();
+        for (Object field : new Object[] {roomId, command.cardType(), command.title(), command.content() == null ? "" : command.content(),
+                command.fileIds() == null ? List.of() : command.fileIds(), command.sessionId()}) {
+            String value = String.valueOf(field);
+            // 길이를 앞에 붙여 필드 경계를 분명히 한다("ab"+"c" 와 "a"+"bc" 가 같은 해시가 되지 않게).
+            text.append(value.length()).append(':').append(value).append('|');
+        }
+        try {
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(text.toString().getBytes(StandardCharsets.UTF_8)));
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     @Transactional(readOnly = true)

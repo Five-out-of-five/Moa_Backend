@@ -7,6 +7,7 @@ import com.fiveoutoffive.moa_backend.ideacard.infrastructure.mapper.IdeaCardMapp
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -33,6 +34,16 @@ public class IdeaCardRepositoryAdapter implements IdeaCardRepository {
     @Override
     public Optional<IdeaCard> findActiveByIdForUpdate(Long id) {
         return springDataRepository.findActiveByIdForUpdate(id).map(ideaCardMapper::toDomain);
+    }
+
+    @Override
+    public void lockCreateRequest(Long writerAccountId, UUID requestId) {
+        springDataRepository.lockCreateRequest("idea_card_request:" + writerAccountId + ":" + requestId);
+    }
+
+    @Override
+    public Optional<IdeaCard> findByWriterAccountIdAndRequestId(Long writerAccountId, UUID requestId) {
+        return springDataRepository.findByWriterAccountIdAndRequestId(writerAccountId, requestId).map(ideaCardMapper::toDomain);
     }
 
     @Override
