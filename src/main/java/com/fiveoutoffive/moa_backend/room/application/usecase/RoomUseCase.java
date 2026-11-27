@@ -1,6 +1,7 @@
 package com.fiveoutoffive.moa_backend.room.application.usecase;
 
 import com.fiveoutoffive.moa_backend.global.common.api.response.PageResponse;
+import java.time.LocalDateTime;
 import com.fiveoutoffive.moa_backend.room.application.command.MemberProfileUpdateCommand;
 import com.fiveoutoffive.moa_backend.room.application.command.OwnerDelegationCommand;
 import com.fiveoutoffive.moa_backend.room.application.command.RoomCreateCommand;
@@ -56,4 +57,10 @@ public interface RoomUseCase {
     void kick(Long accountId, Long roomId, Long targetId);
 
     List<MemberResponse> delegateOwner(Long accountId, Long roomId, OwnerDelegationCommand command);
+
+    /**
+     * 브리핑 '모두 확인': 활동 중인 멤버의 마지막 브리핑 확인 시각만 바꾼다(멤버 행 전체를 다시 저장하지 않음).
+     * 그사이 나갔거나 강퇴됐으면 ROOM_NOT_MEMBER.
+     */
+    void markBriefingChecked(Long roomId, Long accountId, LocalDateTime checkedAt);
 }

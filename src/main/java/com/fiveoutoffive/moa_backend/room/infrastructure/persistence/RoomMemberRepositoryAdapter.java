@@ -4,6 +4,7 @@ import com.fiveoutoffive.moa_backend.room.domain.model.RoomMember;
 import com.fiveoutoffive.moa_backend.room.domain.model.RoomMemberStatus;
 import com.fiveoutoffive.moa_backend.room.domain.repository.RoomMemberRepository;
 import com.fiveoutoffive.moa_backend.room.infrastructure.mapper.RoomMemberMapper;
+import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -62,5 +63,10 @@ public class RoomMemberRepositoryAdapter implements RoomMemberRepository {
     @Override
     public RoomMember saveAndFlush(RoomMember roomMember) {
         return roomMemberMapper.toDomain(springDataRepository.saveAndFlush(roomMemberMapper.toJpaEntity(roomMember)));
+    }
+
+    @Override
+    public boolean updateLastBriefingCheckedAt(Long roomId, Long accountId, LocalDateTime checkedAt) {
+        return springDataRepository.updateLastBriefingCheckedAt(roomId, accountId, checkedAt, RoomMemberStatus.ACTIVE) == 1;
     }
 }

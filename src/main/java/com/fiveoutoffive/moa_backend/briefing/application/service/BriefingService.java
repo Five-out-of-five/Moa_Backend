@@ -11,7 +11,7 @@ import com.fiveoutoffive.moa_backend.global.common.api.response.MemberRef;
 import com.fiveoutoffive.moa_backend.global.util.KstTime;
 import com.fiveoutoffive.moa_backend.room.application.service.RoomAccessService;
 import com.fiveoutoffive.moa_backend.room.domain.model.RoomMember;
-import com.fiveoutoffive.moa_backend.room.domain.repository.RoomMemberRepository;
+import com.fiveoutoffive.moa_backend.room.application.usecase.RoomUseCase;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.EnumSet;
@@ -38,7 +38,7 @@ public class BriefingService implements BriefingUseCase {
 
     private final BoardEventRepository eventRepository;
     private final BriefingDismissalRepository dismissalRepository;
-    private final RoomMemberRepository roomMemberRepository;
+    private final RoomUseCase roomUseCase;
     private final RoomAccessService access;
     private final BoardEventRecorder recorder;
     private final List<MyTodoReader> todoReaders;
@@ -66,9 +66,15 @@ public class BriefingService implements BriefingUseCase {
         return response.teamNews().isEmpty() ? build(roomId, markChecked(member)) : response;
     }
 
+    /**
+     * 멤버 행 전체를 다시 저장하지 않고 확인 시각만 바꾼다(방 도메인 UseCase). 행 전체를 저장하면 같은 순간의 강퇴·나가기·방장 위임을
+     * 예전 값으로 덮어쓴다. 돌려주는 멤버는 응답을 만들 때만 쓰는 사본이다.
+     */
     private RoomMember markChecked(RoomMember member) {
+        LocalDateTime now = KstTime.nowUtc();
         dismissalRepository.deleteByRoomIdAndAccountId(member.getRoomId(), member.getAccountId());
-        return roomMemberRepository.save(member.toBuilder().lastBriefingCheckedAt(KstTime.nowUtc()).build());
+        roomUseCase.markBriefingChecked(member.getRoomId(), member.getAccountId(), now);
+        return member.toBuilder().lastBriefingCheckedAt(now).build();
     }
 
     private BriefingResponse build(Long roomId, RoomMember member) {

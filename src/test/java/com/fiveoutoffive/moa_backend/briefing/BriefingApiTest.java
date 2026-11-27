@@ -4,13 +4,18 @@ import com.fiveoutoffive.moa_backend.support.Be2ApiTestSupport;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.util.List;
+import javax.sql.DataSource;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 @DisplayName("11. Briefing")
 class BriefingApiTest extends Be2ApiTestSupport {
+
+    @Autowired
+    DataSource dataSource;
 
     Member owner;
     Member member;
@@ -126,5 +131,43 @@ class BriefingApiTest extends Be2ApiTestSupport {
 
         assertThat(sendTogether(() -> post(member, path, body), () -> post(member, path, body))).containsExactly(200, 200);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM briefing_dismissal WHERE room_id = ? AND account_id = ?", Integer.class, roomId, member.id())).isLessThanOrEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("강퇴가 커밋되기 직전에 강퇴 대상이 '모두 확인'을 눌러도 강퇴가 되돌려지지 않는다 (확인 시각만 바꾼다)")
+    void checkDoesNotUndoKick() throws Exception {
+        java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newSingleThreadExecutor();
+        try (java.sql.Connection kicking = dataSource.getConnection()) {
+            // 강퇴가 멤버 행을 바꾸고 아직 커밋하지 않은 상태를 만든다.
+            kicking.setAutoCommit(false);
+            try (java.sql.PreparedStatement update = kicking.prepareStatement(
+                    "UPDATE room_member SET status = 'KICKED', nickname = NULL WHERE room_id = ? AND account_id = ?")) {
+                update.setLong(1, roomId);
+                update.setLong(2, member.id());
+                assertThat(update.executeUpdate()).isEqualTo(1);
+            }
+            java.util.concurrent.Future<Response> checking = pool.submit(() -> post(member, briefing + "/check"));
+            Thread.sleep(700);
+
+            kicking.commit();
+            checking.get(20, java.util.concurrent.TimeUnit.SECONDS).fails(403, "ROOM_NOT_MEMBER");
+        } finally {
+            pool.shutdownNow();
+        }
+        String status = jdbc.queryForObject("SELECT status FROM room_member WHERE room_id = ? AND account_id = ?", String.class, roomId, member.id());
+        assertThat(status).isEqualTo("KICKED");
+    }
+
+    @Test
+    @DisplayName("'모두 확인'은 확인 시각만 바꾸고 닉네임 등 다른 칸은 건드리지 않는다")
+    void checkUpdatesOnlyCheckedAt() throws Exception {
+        jdbc.update("UPDATE room_member SET last_briefing_checked_at = NULL WHERE room_id = ? AND account_id = ?", roomId, member.id());
+        String before = jdbc.queryForObject("SELECT coalesce(nickname, '-') || '/' || role || '/' || status FROM room_member WHERE room_id = ? AND account_id = ?", String.class, roomId, member.id());
+
+        post(member, briefing + "/check").ok();
+
+        String after = jdbc.queryForObject("SELECT coalesce(nickname, '-') || '/' || role || '/' || status FROM room_member WHERE room_id = ? AND account_id = ?", String.class, roomId, member.id());
+        assertThat(after).isEqualTo(before);
+        assertThat(jdbc.queryForObject("SELECT last_briefing_checked_at IS NOT NULL FROM room_member WHERE room_id = ? AND account_id = ?", Boolean.class, roomId, member.id())).isTrue();
     }
 }

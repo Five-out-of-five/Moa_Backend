@@ -2,6 +2,7 @@ package com.fiveoutoffive.moa_backend.room.domain.repository;
 
 import com.fiveoutoffive.moa_backend.room.domain.model.RoomMember;
 import com.fiveoutoffive.moa_backend.room.domain.model.RoomMemberStatus;
+import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -27,4 +28,10 @@ public interface RoomMemberRepository {
 
     /** 유니크 인덱스 때문에 순서가 중요한 변경(방장 위임)에 쓴다. */
     RoomMember saveAndFlush(RoomMember roomMember);
+
+    /**
+     * 활동 중인 멤버의 마지막 브리핑 확인 시각만 바꾼다. 행 전체를 다시 저장하지 않으므로 같은 순간의 강퇴·나가기·방장 위임을 덮어쓰지 않는다.
+     * 바꾼 행이 있으면 true(그사이 나갔거나 강퇴됐으면 false).
+     */
+    boolean updateLastBriefingCheckedAt(Long roomId, Long accountId, LocalDateTime checkedAt);
 }
