@@ -63,7 +63,7 @@ public class StoredFileRepositoryAdapter implements StoredFileRepository {
     }
 
     @Override
-    public Page<Object[]> searchRoomFiles(@Param("roomId") Long roomId, @Param("fileGroup") String fileGroup, @Param("uploaderId") Long uploaderId, @Param("keyword") String keyword, @Param("mimeLike") String mimeLike, Pageable pageable) {
-        return springDataRepository.searchRoomFiles(roomId, fileGroup, uploaderId, keyword, mimeLike, pageable);
+    public Page<Object[]> searchRoomFiles(@Param("roomId") Long roomId, @Param("fileGroup") String fileGroup, @Param("uploaderId") Long uploaderId, @Param("keyword") String keyword, @Param("extensionPattern") String extensionPattern, Pageable pageable) {
+        return springDataRepository.searchRoomFiles(roomId, fileGroup, uploaderId, keyword, extensionPattern, pageable);
     }
 }

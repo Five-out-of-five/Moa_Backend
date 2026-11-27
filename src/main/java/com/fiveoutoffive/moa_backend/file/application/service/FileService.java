@@ -36,7 +36,15 @@ public class FileService implements FileUseCase {
     private static final Duration DOWNLOAD_TTL = Duration.ofMinutes(10);
     private static final Map<String, String> SOURCE_GROUPS = Map.of("CHAT", "CHAT_ATTACHMENT", "IDEA_CARD", "CARD_ATTACHMENT", "TASK", "TASK_ATTACHMENT");
     private static final Map<String, String> GROUP_SOURCES = Map.of("CHAT_ATTACHMENT", "CHAT", "CARD_ATTACHMENT", "IDEA_CARD", "TASK_ATTACHMENT", "TASK");
-    private static final Map<String, String> FILE_TYPE_MIME = Map.of("IMAGE", "image/%", "DOCUMENT", "application/%", "ARCHIVE", "application/zip");
+    /**
+     * 파일 종류는 원본 파일명의 확장자로 나눈다 (요구사항 55: 이미지 / 문서 / 압축).
+     * mimeType 은 브라우저가 보낸 값이라 같은 zip 도 application/zip, application/x-zip-compressed 처럼 달라
+     * 기준으로 쓰지 않는다. 업로드 허용 확장자(FileUploadSupport)와 같은 목록을 쓴다.
+     */
+    private static final Map<String, String> FILE_TYPE_EXTENSION_PATTERN = Map.of(
+            "IMAGE", "\\.(jpg|jpeg|png|gif|webp)$",
+            "DOCUMENT", "\\.(pdf|docx|xlsx|pptx|txt|md)$",
+            "ARCHIVE", "\\.zip$");
 
     private final StoredFileRepository storedFileRepository;
     private final FileUploadSupport uploadSupport;
@@ -73,7 +81,7 @@ public class FileService implements FileUseCase {
     public PageResponse<RoomFileResponse> getRoomFiles(Long accountId, Long roomId, String source, String fileType, Long uploaderId, String keyword, Pageable pageable) {
         access.requireMember(roomId, accountId);
         Page<Object[]> rows = storedFileRepository.searchRoomFiles(roomId, source == null ? null : SOURCE_GROUPS.get(source), uploaderId, keyword,
-                fileType == null ? null : FILE_TYPE_MIME.get(fileType), pageable);
+                fileType == null ? null : FILE_TYPE_EXTENSION_PATTERN.get(fileType), pageable);
         Set<Long> uploaderIds = rows.stream().map(row -> ((Number) row[4]).longValue()).collect(Collectors.toSet());
         Map<Long, MemberRef> refs = access.memberRefs(roomId, uploaderIds);
         return Pages.response(rows.map(row -> new RoomFileResponse(((Number) row[0]).longValue(), (String) row[1], (String) row[2], ((Number) row[3]).longValue(),

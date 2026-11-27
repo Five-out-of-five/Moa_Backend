@@ -28,5 +28,5 @@ public interface StoredFileRepository {
 
     boolean isAttached(@Param("id") Long id);
 
-    Page<Object[]> searchRoomFiles(@Param("roomId") Long roomId, @Param("fileGroup") String fileGroup, @Param("uploaderId") Long uploaderId, @Param("keyword") String keyword, @Param("mimeLike") String mimeLike, Pageable pageable);
+    Page<Object[]> searchRoomFiles(@Param("roomId") Long roomId, @Param("fileGroup") String fileGroup, @Param("uploaderId") Long uploaderId, @Param("keyword") String keyword, @Param("extensionPattern") String extensionPattern, Pageable pageable);
 }
