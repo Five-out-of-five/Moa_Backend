@@ -352,6 +352,13 @@ public class RoomService implements RoomUseCase {
         return getMembers(accountId, roomId);
     }
 
+    @Override
+    public void markBriefingChecked(Long roomId, Long accountId, LocalDateTime checkedAt) {
+        if (!roomMemberRepository.updateLastBriefingCheckedAt(roomId, accountId, checkedAt)) {
+            throw new BusinessException(RoomErrorCode.ROOM_NOT_MEMBER);
+        }
+    }
+
     private RoomDetailResponse detail(Room room, Long accountId) {
         RoomMember me = roomMemberRepository.findByRoomIdAndAccountId(room.getId(), accountId).orElseThrow(() -> new BusinessException(RoomErrorCode.ROOM_NOT_MEMBER));
         MemberRef ref = access.memberRef(room.getId(), accountId);
