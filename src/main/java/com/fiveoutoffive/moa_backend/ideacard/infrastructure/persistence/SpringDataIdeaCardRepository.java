@@ -1,13 +1,20 @@
 package com.fiveoutoffive.moa_backend.ideacard.infrastructure.persistence;
 
 import com.fiveoutoffive.moa_backend.ideacard.domain.model.CardType;
+import jakarta.persistence.LockModeType;
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface SpringDataIdeaCardRepository extends JpaRepository<IdeaCardJpaEntity, Long> {
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select c from IdeaCardJpaEntity c where c.id = :id and c.deletedAt is null")
+    Optional<IdeaCardJpaEntity> findActiveByIdForUpdate(@Param("id") Long id);
 
     List<IdeaCardJpaEntity> findBySessionIdAndDeletedAtIsNullOrderBySortOrderAsc(Long sessionId);
 

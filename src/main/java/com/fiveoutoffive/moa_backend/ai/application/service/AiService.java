@@ -195,7 +195,9 @@ public class AiService implements AiUseCase {
     @Override
     public SummaryResponse updateSummary(Long accountId, Long roomId, Long summaryId, SummaryUpdateCommand command) {
         access.requireMember(roomId, accountId);
-        AiSummary summary = findSummary(roomId, summaryId);
+        // 요약 행 전체를 다시 저장하므로, 카드로 저장하기와 겹쳐 saved_card_id 를 예전 값(null)으로 덮지 않게 같은 잠금으로 차례를 맞춘다.
+        AiSummary summary = summaryRepository.findByIdForUpdate(summaryId).filter(s -> s.getRoomId().equals(roomId))
+                .orElseThrow(() -> new BusinessException(AiErrorCode.AI_SUMMARY_NOT_FOUND));
         if (!summary.getRequestedByAccountId().equals(accountId)) {
             throw new BusinessException(GlobalErrorCode.ACCESS_DENIED);
         }
@@ -206,7 +208,14 @@ public class AiService implements AiUseCase {
     @Override
     public IdeaCardDetailResponse saveSummaryAsCard(Long accountId, Long roomId, Long summaryId, SummaryToCardCommand command) {
         access.requireMember(roomId, accountId);
-        AiSummary summary = findSummary(roomId, summaryId);
+        // 요약 행을 잠가 두 번 누르거나 두 사람이 동시에 저장해도 차례로 처리한다.
+        AiSummary summary = summaryRepository.findByIdForUpdate(summaryId).filter(s -> s.getRoomId().equals(roomId))
+                .orElseThrow(() -> new BusinessException(AiErrorCode.AI_SUMMARY_NOT_FOUND));
+        // 이미 카드로 저장한 요약이면 새로 만들지 않고 그 카드를 돌려준다. 저장한 카드가 지워졌으면 다시 만든다.
+        Long savedCardId = summary.getSavedCardId();
+        if (savedCardId != null && cardRepository.findById(savedCardId).filter(c -> c.getRoomId().equals(roomId) && c.getDeletedAt() == null).isPresent()) {
+            return ideaCardUseCase.getDetail(accountId, roomId, savedCardId);
+        }
         if (summary.getContent().length() > 1000) {
             throw new BusinessException(GlobalErrorCode.INVALID_REQUEST);
         }
@@ -343,10 +352,6 @@ public class AiService implements AiUseCase {
             log.warn("[AI] 어시스턴트 근거 JSON 을 읽지 못함: {}", e.getMessage());
             return null;
         }
-    }
-
-    private AiSummary findSummary(Long roomId, Long summaryId) {
-        return summaryRepository.findById(summaryId).filter(s -> s.getRoomId().equals(roomId)).orElseThrow(() -> new BusinessException(AiErrorCode.AI_SUMMARY_NOT_FOUND));
     }
 
     private SummaryResponse toResponse(AiSummary s) {

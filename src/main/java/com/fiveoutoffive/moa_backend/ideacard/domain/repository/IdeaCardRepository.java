@@ -14,6 +14,9 @@ public interface IdeaCardRepository {
 
     Optional<IdeaCard> findById(Long id);
 
+    /** 삭제되지 않은 카드 행을 잠근다(FOR UPDATE). 같은 카드의 첨부 추가처럼 "세고 나서 넣는" 처리를 차례로 하게 한다. 기다리는 사이 지워졌으면 빈 값이다. */
+    Optional<IdeaCard> findActiveByIdForUpdate(Long id);
+
     List<IdeaCard> findBySessionIdAndDeletedAtIsNullOrderBySortOrderAsc(Long sessionId);
 
     List<IdeaCard> findBySessionIdAndCardTypeAndDeletedAtIsNullOrderBySortOrderAsc(Long sessionId, CardType cardType);

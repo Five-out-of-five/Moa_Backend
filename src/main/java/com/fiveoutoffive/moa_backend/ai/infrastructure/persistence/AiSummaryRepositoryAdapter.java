@@ -29,6 +29,11 @@ public class AiSummaryRepositoryAdapter implements AiSummaryRepository {
     }
 
     @Override
+    public Optional<AiSummary> findByIdForUpdate(Long id) {
+        return springDataRepository.findByIdForUpdate(id).map(aiSummaryMapper::toDomain);
+    }
+
+    @Override
     public Page<AiSummary> findByRoomId(Long roomId, Pageable pageable) {
         return springDataRepository.findByRoomId(roomId, pageable).map(aiSummaryMapper::toDomain);
     }

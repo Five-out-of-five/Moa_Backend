@@ -267,6 +267,10 @@ public class IdeaCardService implements IdeaCardUseCase {
     public List<FileResponse> attachFile(Long accountId, Long roomId, Long cardId, AttachFileCommand command) {
         access.requireMember(roomId, accountId);
         IdeaCard card = writable(roomId, cardId, accountId);
+        // 같은 카드에 동시에 첨부해도 차례로 세어서 5개를 넘지 않게 카드 행을 잠근다(늦은 쪽은 FILE_ATTACHMENT_LIMIT_EXCEEDED).
+        // 잠금 순서는 다른 카드 변경과 같이 회차(writable 안의 공유 잠금) → 카드다. 순서가 엇갈리면 마감과 겹칠 때 교착이 생긴다.
+        // 기다리는 사이 카드가 지워졌으면 잠금 조회가 빈 값이다.
+        cardRepository.findActiveByIdForUpdate(cardId).orElseThrow(() -> new BusinessException(IdeaCardErrorCode.CARD_NOT_FOUND));
         List<CardFile> current = fileRepository.findByCardIdOrderBySortOrderAsc(cardId);
         fileAttachSupport.requireAttachable(roomId, accountId, List.of(command.fileId()), FileGroup.CARD_ATTACHMENT, current.size());
         fileRepository.save(CardFile.builder().cardId(cardId).fileId(command.fileId()).sortOrder(current.size()).build());
@@ -348,10 +352,13 @@ public class IdeaCardService implements IdeaCardUseCase {
                 .orElseThrow(() -> new BusinessException(IdeaCardErrorCode.CARD_NOT_FOUND));
     }
 
-    /** 진행 중 회차의 카드만 통과시킨다. */
+    /**
+     * 진행 중 회차의 카드만 통과시킨다. 회차를 공유 잠금으로 읽으므로 이 변경이 끝날 때까지 회차 마감이 기다린다.
+     * 마감과 겹친 변경은 마감된 최신 상태를 보고 거절되어, 마감된 회차의 카드가 바뀌지 않는다.
+     */
     private IdeaCard open(Long roomId, Long cardId) {
         IdeaCard card = find(roomId, cardId);
-        if (sessionRepository.findById(card.getSessionId()).map(s -> s.getStatus() == SessionStatus.CLOSED).orElse(true)) {
+        if (sessionRepository.findSharedById(card.getSessionId()).map(s -> s.getStatus() == SessionStatus.CLOSED).orElse(true)) {
             throw new BusinessException(IdeaCardErrorCode.CARD_SESSION_CLOSED);
         }
         return card;
