@@ -181,6 +181,41 @@ class AiApiTest extends Be2ApiTestSupport {
     }
 
     @Test
+    @DisplayName("이미 카드로 저장한 요약을 다시 저장하면 새 카드 없이 처음 카드를 돌려주고, 그 카드가 지워졌으면 다시 만든다")
+    void saveAsCardOnce() throws Exception {
+        Long summaryId = insertSummary(owner, "요약 본문");
+        String path = ai + "/summaries/" + summaryId + "/save-as-card";
+        post(owner, "/rooms/" + roomId + "/sessions", "{\"title\":\"회차\"}").ok();
+
+        Long first = post(owner, path, "{\"cardType\":\"AGENDA\",\"title\":\"요약 카드\"}").ok().id("$.data.cardId");
+        Response again = post(member, path, "{\"cardType\":\"KEEP\",\"title\":\"다른 제목\"}").ok();
+        assertThat(again.id("$.data.cardId")).isEqualTo(first);
+        assertThat(again.<String>read("$.data.title")).isEqualTo("요약 카드");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM idea_card WHERE room_id = ? AND deleted_at IS NULL", Integer.class, roomId)).isEqualTo(1);
+
+        delete(owner, "/rooms/" + roomId + "/idea-cards/" + first).ok();
+        Long remade = post(owner, path, "{\"cardType\":\"AGENDA\",\"title\":\"다시 저장\"}").ok().id("$.data.cardId");
+        assertThat(remade).isNotEqualTo(first);
+        assertThat(jdbc.queryForObject("SELECT saved_card_id FROM ai_summary WHERE id = ?", Long.class, summaryId)).isEqualTo(remade);
+    }
+
+    @Test
+    @DisplayName("같은 요약을 동시에 카드로 저장해도 카드는 1장만 생긴다")
+    void saveAsCardTogether() throws Exception {
+        post(owner, "/rooms/" + roomId + "/sessions", "{\"title\":\"회차\"}").ok();
+        for (int round = 0; round < 5; round++) {
+            Long summaryId = insertSummary(owner, "요약 " + round);
+            String path = ai + "/summaries/" + summaryId + "/save-as-card";
+            String body = "{\"cardType\":\"AGENDA\",\"title\":\"동시 저장 %d\"}".formatted(round);
+
+            List<Integer> statuses = sendTogether(() -> post(owner, path, body), () -> post(member, path, body));
+
+            assertThat(statuses).containsExactly(200, 200);
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM idea_card WHERE room_id = ? AND title = ?", Integer.class, roomId, "동시 저장 " + round)).isEqualTo(1);
+        }
+    }
+
+    @Test
     @DisplayName("1000자를 넘는 요약은 카드로 저장하지 않는다(서버가 자르지 않음)")
     void saveAsCardTooLong() throws Exception {
         Long summaryId = insertSummary(owner, "가".repeat(1001));

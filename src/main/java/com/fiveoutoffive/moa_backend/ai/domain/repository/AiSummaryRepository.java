@@ -12,5 +12,8 @@ public interface AiSummaryRepository {
 
     Optional<AiSummary> findById(Long id);
 
+    /** 요약 행을 잠근다(FOR UPDATE). 같은 요약을 동시에 카드로 저장해도 차례로 처리한다. */
+    Optional<AiSummary> findByIdForUpdate(Long id);
+
     Page<AiSummary> findByRoomId(Long roomId, Pageable pageable);
 }

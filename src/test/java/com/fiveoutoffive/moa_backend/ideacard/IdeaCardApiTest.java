@@ -280,6 +280,58 @@ class IdeaCardApiTest extends Be2ApiTestSupport {
     }
 
     @Test
+    @DisplayName("회차 마감과 카드 수정·댓글이 겹치면 마감을 기다렸다가 CARD_SESSION_CLOSED 로 거절된다 (마감된 회차의 카드가 바뀌지 않는다)")
+    void changeWaitsForClosingSession() throws Exception {
+        Long sessionId = startSession();
+        Long cardId = createCard(owner, "KEEP", "원래 제목");
+        List<java.util.concurrent.Callable<Response>> changes = List.of(
+                () -> patch(owner, cards + "/" + cardId, "{\"title\":\"마감 중 수정\"}"),
+                () -> post(member, cards + "/" + cardId + "/comments", "{\"content\":\"마감 중 댓글\"}"));
+        java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(changes.size());
+        try (java.sql.Connection closing = dataSource.getConnection()) {
+            closing.setAutoCommit(false);
+            try (java.sql.PreparedStatement update = closing.prepareStatement(
+                    "UPDATE board_session SET status = 'CLOSED', closed_at = now() AT TIME ZONE 'UTC', closed_by_account_id = ? WHERE id = ?")) {
+                update.setLong(1, owner.id());
+                update.setLong(2, sessionId);
+                assertThat(update.executeUpdate()).isEqualTo(1);
+            }
+            List<java.util.concurrent.Future<Response>> running = changes.stream().map(pool::submit).toList();
+            Thread.sleep(700);
+            assertThat(running).as("마감이 끝나기 전에는 카드 변경이 기다려야 한다").noneMatch(java.util.concurrent.Future::isDone);
+
+            closing.commit();
+            for (java.util.concurrent.Future<Response> f : running) {
+                f.get(20, java.util.concurrent.TimeUnit.SECONDS).fails(409, "CARD_SESSION_CLOSED");
+            }
+        } finally {
+            pool.shutdownNow();
+        }
+        assertThat(jdbc.queryForObject("SELECT title FROM idea_card WHERE id = ?", String.class, cardId)).isEqualTo("원래 제목");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM card_comment WHERE card_id = ?", Integer.class, cardId)).isZero();
+    }
+
+    @Test
+    @DisplayName("첨부 4개인 카드에 두 파일을 동시에 붙여도 5개를 넘지 않는다 (늦은 쪽은 FILE_ATTACHMENT_LIMIT_EXCEEDED)")
+    void attachTogetherKeepsLimit() throws Exception {
+        startSession();
+        for (int round = 0; round < 5; round++) {
+            Long cardId = createCard(owner, "KEEP", "첨부 " + round);
+            String files = cards + "/" + cardId + "/files";
+            for (int i = 0; i < 4; i++) {
+                post(owner, files, "{\"fileId\":%d}".formatted(uploadedFile(owner, "CARD_ATTACHMENT"))).ok();
+            }
+            Long a = uploadedFile(owner, "CARD_ATTACHMENT");
+            Long b = uploadedFile(owner, "CARD_ATTACHMENT");
+
+            List<Integer> statuses = sendTogether(() -> post(owner, files, "{\"fileId\":%d}".formatted(a)), () -> post(owner, files, "{\"fileId\":%d}".formatted(b)));
+
+            assertThat(statuses).containsExactlyInAnyOrder(200, 409);
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM card_file WHERE card_id = ?", Integer.class, cardId)).isEqualTo(5);
+        }
+    }
+
+    @Test
     @DisplayName("파일 첨부: 등록할 때 첨부, 나중에 추가, 첨부 삭제")
     void attachFlow() throws Exception {
         startSession();

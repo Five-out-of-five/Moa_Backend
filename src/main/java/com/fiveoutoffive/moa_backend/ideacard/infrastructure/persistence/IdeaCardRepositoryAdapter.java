@@ -31,6 +31,11 @@ public class IdeaCardRepositoryAdapter implements IdeaCardRepository {
     }
 
     @Override
+    public Optional<IdeaCard> findActiveByIdForUpdate(Long id) {
+        return springDataRepository.findActiveByIdForUpdate(id).map(ideaCardMapper::toDomain);
+    }
+
+    @Override
     public List<IdeaCard> findBySessionIdAndDeletedAtIsNullOrderBySortOrderAsc(Long sessionId) {
         return springDataRepository.findBySessionIdAndDeletedAtIsNullOrderBySortOrderAsc(sessionId).stream().map(ideaCardMapper::toDomain).toList();
     }
